@@ -35,13 +35,13 @@ import * as Location from "expo-location";
 import { Audio } from "expo-av";
 // ── react-native-iap (Sandbox / Consumable) ───────────────────────────────────
 //import {
-  initConnection,
-  endConnection,
-  getProducts,
-  requestPurchase,
-  purchaseUpdatedListener,
-  purchaseErrorListener,
-  finishTransaction,
+//  initConnection,
+//  endConnection,
+ // getProducts,
+//  requestPurchase,
+//  purchaseUpdatedListener,
+//  purchaseErrorListener,
+//  finishTransaction,
 // } from "react-native-iap";
 
 // ── فرض RTL عالمياً (مرة واحدة عند بدء التطبيق) ─────────────────────────────
