@@ -40,7 +40,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "يستخدم التطبيق موقعك لتحديد اتجاه القبلة وأوقات الصلاة"
         }
-      ]
+      ],
+      "react-native-iap"
     ],
     "extra": {
       "eas": {
