@@ -1105,12 +1105,18 @@ export default function App() {
       {/* Bottom nav */}
       <View style={[styles.bottomNav, { borderTopColor: T.cardBorder }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomNavContent}>
-          {NAV_TABS.map((t) => (
-            <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn}>
-              <Text style={styles.navTabIcon}>{t.icon}</Text>
-              <Text style={[styles.navTabLabel, { color: activeTab === t.id ? T.accent : "#444" }]}>{t.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {NAV_TABS.map((t) => {
+            const isActive = activeTab === t.id;
+            return (
+              <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn} activeOpacity={0.7}>
+                <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 16, borderWidth: 1, borderColor: T.accentBorder }]}>
+                  <Text style={[styles.navTabIcon, { fontSize: isActive ? 22 : 19, opacity: isActive ? 1 : 0.45 }]}>{t.icon}</Text>
+                </View>
+                <Text style={[styles.navTabLabel, { color: isActive ? T.accent : "#444", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
+                {isActive && <View style={[styles.navTabDot, { backgroundColor: T.accent }]} />}
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
     </View>
@@ -2127,9 +2133,11 @@ const styles = StyleSheet.create({
 
   bottomAd: { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 70, left: 0, right: 0, zIndex: 90 },
   bottomAdText: { color: "#333", fontSize: 11 },
-  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#050505", borderTopWidth: 1, zIndex: 100, paddingTop: 3, paddingBottom: 20 },
-  bottomNavContent: { paddingHorizontal: 4 },
-  navTabBtn: { minWidth: 52, alignItems: "center", paddingHorizontal: 6, paddingVertical: 3 },
-  navTabIcon: { fontSize: 17 },
-  navTabLabel: { fontSize: 8.5, marginTop: 1 },
+  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#060606", borderTopWidth: 1, zIndex: 100, paddingTop: 8, paddingBottom: 22 },
+  bottomNavContent: { paddingHorizontal: 6, gap: 2 },
+  navTabBtn: { minWidth: 58, alignItems: "center", paddingHorizontal: 4, paddingVertical: 4, gap: 3 },
+  navTabIconWrap: { width: 42, height: 32, alignItems: "center", justifyContent: "center" },
+  navTabIcon: { fontSize: 19 },
+  navTabLabel: { fontSize: 9, marginTop: 1, letterSpacing: 0.2 },
+  navTabDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2 },
 });
