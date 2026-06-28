@@ -7,6 +7,7 @@
     "icon": "./icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "owner": "nbare1997",
     "splash": {
       "image": "./splash-icon.png",
       "resizeMode": "contain",
@@ -28,7 +29,9 @@
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "SYSTEM_ALERT_WINDOW"
       ]
     },
     "plugins": [
@@ -40,9 +43,7 @@
       ]
     ],
     "extra": {
-      "eas": {
-        "projectId": "46f5eae6-a789-4b28-82de-ece2420366e6"
-      }
+      "eas": {}
     }
   }
 }
