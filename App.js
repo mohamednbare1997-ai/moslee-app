@@ -1103,21 +1103,20 @@ export default function App() {
       )}
 
       {/* Bottom nav */}
-      <View style={[styles.bottomNav, { borderTopColor: T.cardBorder }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomNavContent}>
+      <View style={[styles.bottomNav, { borderTopColor: T.cardBorder, backgroundColor: "#070707" }]}>
+        <View style={styles.bottomNavContent}>
           {NAV_TABS.map((t) => {
             const isActive = activeTab === t.id;
             return (
               <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn} activeOpacity={0.7}>
-                <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 16, borderWidth: 1, borderColor: T.accentBorder }]}>
-                  <Text style={[styles.navTabIcon, { fontSize: isActive ? 22 : 19, opacity: isActive ? 1 : 0.45 }]}>{t.icon}</Text>
+                <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5, borderWidth: 1, borderColor: T.accentBorder }]}>
+                  <Text style={[styles.navTabIcon, { opacity: isActive ? 1 : 0.4 }]}>{t.icon}</Text>
                 </View>
-                <Text style={[styles.navTabLabel, { color: isActive ? T.accent : "#444", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
-                {isActive && <View style={[styles.navTabDot, { backgroundColor: T.accent }]} />}
+                <Text style={[styles.navTabLabel, { color: isActive ? T.accent : "#3a3a3a", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
     </View>
   );
@@ -1835,10 +1834,7 @@ function SettingsScreen({
       <Card T={T} title="ℹ️ عن التطبيق">
         <RI label="الإصدار" value="3.0.0" />
         <RI label="المطور" value="فريق مُصلِّي" />
-        <RI label="مصدر البيانات" value="مجمع الملك فهد" />
-        <RI label="مواقيت الصلاة" value="Aladhan API — Live" />
         <RI label="البيانات القرآنية" value="محققة ومعتمدة 100%" />
-        <RI label="الصوت" value="الشيخ مشاري العفاسي" />
       </Card>
     </ScrollView>
   );
@@ -1847,7 +1843,7 @@ function SettingsScreen({
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   appRoot: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center" },
-  screensWrap: { flex: 1, paddingBottom: 56 },
+  screensWrap: { flex: 1, paddingBottom: 80 },
 
   splashWrap: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
   splashGlow: { position: "absolute", width: 320, height: 320, borderRadius: 160, backgroundColor: "#22c55e1a", top: "28%" },
@@ -1866,7 +1862,7 @@ const styles = StyleSheet.create({
   adSkip: { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
   adSkipText: { color: "#ccc", fontSize: 13 },
 
-  mamaWrap: { position: "absolute", bottom: 62, left: 0, right: 0, alignItems: "center", zIndex: 50 },
+  mamaWrap: { position: "absolute", bottom: 95, left: 0, right: 0, alignItems: "center", zIndex: 200 },
   mamaBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#1a0005", borderWidth: 1, borderColor: "#e11d4860", borderRadius: 22, paddingHorizontal: 20, paddingVertical: 7 },
   mamaHeart: { fontSize: 15 },
   mamaText: { color: "#ff2d5f", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
@@ -2131,13 +2127,13 @@ const styles = StyleSheet.create({
   salahIntBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
   salahIntBtnText: { fontSize: 12 },
 
-  bottomAd: { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 70, left: 0, right: 0, zIndex: 90 },
+  bottomAd: { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 82, left: 0, right: 0, zIndex: 90 },
   bottomAdText: { color: "#333", fontSize: 11 },
-  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#060606", borderTopWidth: 1, zIndex: 100, paddingTop: 8, paddingBottom: 22 },
-  bottomNavContent: { paddingHorizontal: 6, gap: 2 },
-  navTabBtn: { minWidth: 58, alignItems: "center", paddingHorizontal: 4, paddingVertical: 4, gap: 3 },
-  navTabIconWrap: { width: 42, height: 32, alignItems: "center", justifyContent: "center" },
-  navTabIcon: { fontSize: 19 },
-  navTabLabel: { fontSize: 9, marginTop: 1, letterSpacing: 0.2 },
-  navTabDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2 },
+  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 10, paddingBottom: 24 },
+  bottomNavContent: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 4 },
+  navTabBtn: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
+  navTabIconWrap: { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
+  navTabIcon: { fontSize: 20 },
+  navTabLabel: { fontSize: 9, marginTop: 1, letterSpacing: 0.3 },
+  navTabDot: { width: 4, height: 4, borderRadius: 2, marginTop: 1 },
 });
