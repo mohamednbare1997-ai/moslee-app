@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.nbare.moslee",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -31,6 +31,14 @@
         "ACCESS_COARSE_LOCATION"
       ]
     },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "يستخدم التطبيق موقعك لتحديد اتجاه القبلة وأوقات الصلاة"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "46f5eae6-a789-4b28-82de-ece2420366e6"
