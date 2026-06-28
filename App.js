@@ -1212,7 +1212,7 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
       {/* Countdown */}
       <View style={[styles.countdownRow, { backgroundColor: T.cardBg, borderBottomColor: T.cardBorder }]}>
         <Text style={styles.countdownLabel}>الوقت المتبقي لأذان {countdown.label}</Text>
-        <Text style={[styles.countdownVal, { color: T.accent }]}>
+        <Text style={[styles.countdownVal, { color: T.accent, writingDirection: "ltr" }]}>
           {pad(countdown.mins)}:{pad(countdown.secs)}
         </Text>
       </View>
