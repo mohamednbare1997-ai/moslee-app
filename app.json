@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "مُصلِّي",
-    "slug": "moslee",
+    "slug": "musley",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./icon.png",
@@ -43,7 +43,9 @@
       ]
     ],
     "extra": {
-      "eas": {}
+      "eas": {
+        "projectId": "a5653f19-9109-4379-8146-211d621f3ad8"
+      }
     }
   }
 }
