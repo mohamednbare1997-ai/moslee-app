@@ -34,7 +34,7 @@ import * as Crypto from "expo-crypto";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
 // ── react-native-iap (Sandbox / Consumable) ───────────────────────────────────
-import {
+//import {
   initConnection,
   endConnection,
   getProducts,
@@ -42,7 +42,7 @@ import {
   purchaseUpdatedListener,
   purchaseErrorListener,
   finishTransaction,
-} from "react-native-iap";
+// } from "react-native-iap";
 
 // ── فرض RTL عالمياً (مرة واحدة عند بدء التطبيق) ─────────────────────────────
 if (!I18nManager.isRTL) {
