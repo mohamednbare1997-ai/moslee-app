@@ -450,7 +450,7 @@ export default function App() {
       playsInSilentModeIOS: true,
       shouldDuckAndroid: true,
       playThroughEarpieceAndroid: false,
-      staysActiveInBackground: true,
+      staysActiveInBackground: false,
     }).catch(() => {});
   }, []);
 
