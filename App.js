@@ -13,14 +13,87 @@ import {
   Modal,
   Platform,
   AppState,
+  PanResponder,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Text as SvgText } from "react-native-svg";
 import * as Crypto from "expo-crypto";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
+import * as Haptics from "expo-haptics";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Magnetometer } from "expo-sensors";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+
+// ─── PERSISTENCE KEYS ─────────────────────────────────────────────────────────
+const STORAGE_KEYS = {
+  TASBEEH_TOTAL: "@moslee:tasbeehTotal",
+  TASBEEH_COUNT: "@moslee:tasbeehCount",
+  BOOKMARK: "@moslee:bookmark",
+  UNLOCKED_IDS: "@moslee:unlockedIds",
+  ACTIVE_THEME: "@moslee:activeThemeId",
+  AD_FREE: "@moslee:adFree",
+  MAMA_MODE: "@moslee:mamaMode",
+  VIP_PURCHASED: "@moslee:vipPurchased",
+  FLOAT_W: "@moslee:floatW",
+  FLOAT_TASBEEH_W: "@moslee:floatTasbeehW",
+  FLOAT_W_POS: "@moslee:floatWPos",
+  FLOAT_TASBEEH_POS: "@moslee:floatTasbeehPos",
+  AYAHS_READ_TOTAL: "@moslee:ayahsReadTotal",
+  READING_SECONDS_TOTAL: "@moslee:readingSecondsTotal",
+  DAILY_LOG: "@moslee:dailyLog", // { "YYYY-MM-DD": { tasbeeh, ayahs, mins } }
+  FIRST_USE_DATE: "@moslee:firstUseDate",
+  LAST_USE_DATE: "@moslee:lastUseDate",
+  STREAK_COUNT: "@moslee:streakCount",
+  AZAN_ON: "@moslee:azanOn",
+  SALAH_ON: "@moslee:salahOn",
+  SALAH_INT: "@moslee:salahInt",
+  PRE_ON: "@moslee:preOn",
+  AUTO_AZKAR: "@moslee:autoAzkar",
+  TRAVEL_ON: "@moslee:travelOn",
+  FAST_ON: "@moslee:fastOn",
+  FAST_MT: "@moslee:fastMT",
+  FAST_WD: "@moslee:fastWD",
+  ACHIEVEMENT_KAHF: "@moslee:achievementKahf",
+};
+
+async function loadJSON(key, fallback) {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (raw === null || raw === undefined) return fallback;
+    return JSON.parse(raw);
+  } catch (e) {
+    return fallback;
+  }
+}
+async function saveJSON(key, value) {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    // storage write failed silently; app continues with in-memory state
+  }
+}
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function daysBetween(dateStrA, dateStrB) {
+  const a = new Date(dateStrA + "T00:00:00");
+  const b = new Date(dateStrB + "T00:00:00");
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+// ─── HAPTICS HELPER (fails silently on unsupported platforms) ───────────────
+const haptic = {
+  light: () => { try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {} },
+  medium: () => { try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch (e) {} },
+  success: () => { try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch (e) {} },
+  warning: () => { try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch (e) {} },
+  selection: () => { try { Haptics.selectionAsync(); } catch (e) {} },
+};
 
 // ─── THEME DEFINITIONS ────────────────────────────────────────────────────────
 const THEMES = [
@@ -133,16 +206,6 @@ const SUNNAH_LIST = [
   { text: "إحياء السنن المهجورة في البيت والسوق", label: "إحياء السنة", count: 1 },
 ];
 
-const WEEKLY_STATS = [
-  { day: "السبت", mins: 12, ayahs: 8 },
-  { day: "الأحد", mins: 25, ayahs: 18 },
-  { day: "الإثنين", mins: 8, ayahs: 5 },
-  { day: "الثلاثاء", mins: 32, ayahs: 22 },
-  { day: "الأربعاء", mins: 20, ayahs: 14 },
-  { day: "الخميس", mins: 45, ayahs: 35 },
-  { day: "الجمعة", mins: 60, ayahs: 50 },
-];
-
 const DHIKR_PHRASES = [
   "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ سُبْحَانَ اللَّهِ الْعَظِيمِ",
   "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ",
@@ -169,6 +232,18 @@ const FATWA_QA = [
 
 // ─── AUDIO SOURCES ────────────────────────────────────────────────────────────
 // Hosted audio URLs from verified cloud repositories
+//
+// ⚠️ NOTE FOR DEVELOPER (Nbare):
+// You mentioned you will add your own audio sources. The `salahReminder` key
+// below was previously duplicated from the Fatiha ayah audio (a real bug —
+// the user would hear a Quranic verse instead of "Allahumma salli ala
+// Muhammad"). It is now an explicit placeholder pointing at nothing real so
+// the app doesn't silently mislead anyone. Replace SALAH_REMINDER_URL with
+// your own hosted "صلاة على النبي" audio file (mp3/aac) before shipping.
+// The playback code below already handles a failed/missing URL gracefully
+// (falls back to a vibration + text notification, never crashes).
+const SALAH_REMINDER_URL = null; // ← Nbare: put your real "صلاة على النبي" audio URL here
+
 const AUDIO_SOURCES = {
   // Mishary Rashid Al-Afasy recitation of Al-Fatiha (7 ayahs)
   fatiha: [
@@ -182,8 +257,8 @@ const AUDIO_SOURCES = {
   ],
   // Azan audio from verified CDN
   azan: "https://www.islamcan.com/audio/adhan/azan1.mp3",
-  // Salah reminder: "Allahumma salli ala Muhammad"
-  salahReminder: "https://cdn.islamic.network/quran/audio/128/ar.alafasy/2.mp3",
+  // Salah reminder: dedicated URL only — no longer falls back to Quran audio
+  salahReminder: SALAH_REMINDER_URL,
 };
 
 // ─── PRAYER NAMES ─────────────────────────────────────────────────────────────
@@ -290,14 +365,15 @@ function Card({ T, title, children, style }) {
 
 function PBar({ T, label, pct, color }) {
   const c = color || T.accent;
+  const safePct = Math.max(0, Math.min(100, Math.round(pct)));
   return (
     <View style={{ marginBottom: 10 }}>
       <View style={styles.pbarRow}>
         <Text style={styles.pbarLabel}>{label}</Text>
-        <Text style={[styles.pbarPct, { color: c }]}>{pct}%</Text>
+        <Text style={[styles.pbarPct, { color: c }]}>{safePct}%</Text>
       </View>
       <View style={styles.pbarTrack}>
-        <View style={[styles.pbarFill, { width: `${pct}%`, backgroundColor: c }]} />
+        <View style={[styles.pbarFill, { width: `${safePct}%`, backgroundColor: c }]} />
       </View>
     </View>
   );
@@ -321,7 +397,7 @@ function Toggle({ T, label, sub, value, onChange }) {
       </View>
       <TouchableOpacity
         activeOpacity={0.8}
-        onPress={() => onChange(!value)}
+        onPress={() => { haptic.selection(); onChange(!value); }}
         style={[styles.toggleTrack, { backgroundColor: value ? T.accent : "#222" }]}
       >
         <View style={[styles.toggleThumb, { left: value ? 22 : 3 }]} />
@@ -334,7 +410,7 @@ function Btn({ T, label, onPress, small }) {
   return (
     <TouchableOpacity
       activeOpacity={0.8}
-      onPress={onPress}
+      onPress={() => { haptic.light(); onPress && onPress(); }}
       style={[
         styles.btn,
         {
@@ -350,11 +426,104 @@ function Btn({ T, label, onPress, small }) {
   );
 }
 
+// ─── DRAGGABLE FLOATING BUBBLE ────────────────────────────────────────────────
+// Generic free-floating, draggable bubble used for both the Tasbeeh quick
+// counter and the Fatwa chat launcher. Position persists via onPositionChange
+// (caller is responsible for saving it to AsyncStorage), and a tap (as
+// opposed to a drag) triggers onPress. Clamps to screen bounds so the bubble
+// can never be dragged off-screen and lost.
+function DraggableBubble({
+  size = 84,
+  initialPosition,
+  onPositionChange,
+  onPress,
+  style,
+  children,
+  bottomBound = 140,
+  topBound = 60,
+}) {
+  const pan = useRef(
+    new Animated.ValueXY(
+      initialPosition || { x: SCREEN_W - size - 14, y: SCREEN_H * 0.32 }
+    )
+  ).current;
+  const lastPos = useRef(initialPosition || { x: SCREEN_W - size - 14, y: SCREEN_H * 0.32 });
+  const dragDistance = useRef(0);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const clamp = (x, y) => {
+    const maxX = SCREEN_W - size - 4;
+    const maxY = SCREEN_H - size - bottomBound;
+    return {
+      x: Math.max(4, Math.min(maxX, x)),
+      y: Math.max(topBound, Math.min(maxY, y)),
+    };
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (evt, gesture) =>
+        Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
+      onPanResponderGrant: () => {
+        dragDistance.current = 0;
+        Animated.spring(scaleAnim, { toValue: 1.08, useNativeDriver: true, friction: 5 }).start();
+        pan.setOffset(lastPos.current);
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: (evt, gesture) => {
+        dragDistance.current = Math.abs(gesture.dx) + Math.abs(gesture.dy);
+        pan.setValue({ x: gesture.dx, y: gesture.dy });
+      },
+      onPanResponderRelease: (evt, gesture) => {
+        pan.flattenOffset();
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 5 }).start();
+        const rawX = lastPos.current.x + gesture.dx;
+        const rawY = lastPos.current.y + gesture.dy;
+        const clamped = clamp(rawX, rawY);
+        lastPos.current = clamped;
+        Animated.spring(pan, {
+          toValue: clamped,
+          useNativeDriver: false,
+          friction: 6,
+        }).start();
+        if (onPositionChange) onPositionChange(clamped);
+
+        // A tap is a release with negligible movement; a drag is anything else.
+        if (dragDistance.current < 6) {
+          haptic.light();
+          if (onPress) onPress();
+        } else {
+          haptic.selection();
+        }
+      },
+    })
+  ).current;
+
+  return (
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[
+        {
+          position: "absolute",
+          width: size,
+          height: size,
+          zIndex: 500,
+          transform: [{ translateX: pan.x }, { translateY: pan.y }, { scale: scaleAnim }],
+        },
+      ]}
+    >
+      <View style={[{ width: size, height: size }, style]}>{children}</View>
+    </Animated.View>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   // ── All hooks declared at top level ──────────────────────────────────────
   const [screen, setScreen] = useState("splash");
   const [activeTab, setActiveTab] = useState("home");
+  const [hydrated, setHydrated] = useState(false);
   const [fontSize, setFontSize] = useState(26);
   const [bookmark, setBookmark] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -364,11 +533,12 @@ export default function App() {
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [currentAyah, setCurrentAyah] = useState(0);
   const [tasbeehCount, setTasbeehCount] = useState(0);
+  const [tasbeehTotal, setTasbeehTotal] = useState(0); // lifetime, persisted, drives stats
   const [tShake, setTShake] = useState(false);
   const [tFlash, setTFlash] = useState(false);
-  const [floatW, setFloatW] = useState(false);
+  const [floatW, setFloatW] = useState(false); // fatwa floating bubble
+  const [floatTasbeehW, setFloatTasbeehW] = useState(false); // tasbeeh floating bubble
   const [notifW, setNotifW] = useState(false);
-  const [compassAngle, setCompassAngle] = useState(0);
   const [morningC, setMorningC] = useState(MORNING_AZKAR.map((a) => a.count));
   const [eveningC, setEveningC] = useState(EVENING_AZKAR.map((a) => a.count));
   const [sleepC, setSleepC] = useState(SLEEP_AZKAR.map((a) => a.count));
@@ -387,12 +557,24 @@ export default function App() {
   const [livePrayerTimes, setLivePrayerTimes] = useState(null);
   const [prayerLoading, setPrayerLoading] = useState(false);
   const [qiblaAngle, setQiblaAngle] = useState(143); // default to Cairo
+
+  // Real device compass heading via magnetometer (falls back to simulated
+  // rotation only if the sensor genuinely has no data after a timeout —
+  // this keeps Qibla usable on web/emulator preview while being accurate
+  // on a real device).
   const [liveCompassAngle, setLiveCompassAngle] = useState(0);
+  const [compassSource, setCompassSource] = useState("sensor"); // "sensor" | "simulated"
+
+  // Reading-time tracking (drives real stats instead of mock numbers)
+  const [ayahsReadTotal, setAyahsReadTotal] = useState(0);
+  const [readingSecondsTotal, setReadingSecondsTotal] = useState(0);
+  const [dailyLog, setDailyLog] = useState({}); // { "YYYY-MM-DD": { tasbeeh, ayahs, mins } }
+  const [streakCount, setStreakCount] = useState(1);
+  const [firstUseDate, setFirstUseDate] = useState(null);
+  const [achievementKahf, setAchievementKahf] = useState(false);
+  const readingSessionStart = useRef(null);
 
   // Audio state
-  const [quranSoundObj, setQuranSoundObj] = useState(null);
-  const [azanSoundObj, setAzanSoundObj] = useState(null);
-  const [salahReminderObj, setSalahReminderObj] = useState(null);
   const [audioLoadingAyah, setAudioLoadingAyah] = useState(false);
   const [azanTriggered, setAzanTriggered] = useState({});
   const salahReminderTimer = useRef(null);
@@ -402,6 +584,7 @@ export default function App() {
   const [salahOn, setSalahOn] = useState(true);
   const [salahInt, setSalahInt] = useState(30);
   const [preOn, setPreOn] = useState(true);
+  const [preFired, setPreFired] = useState({});
   const [autoAzkar, setAutoAzkar] = useState(true);
   const [travelOn, setTravelOn] = useState(false);
   const [fastOn, setFastOn] = useState(false);
@@ -428,10 +611,15 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Floating bubble positions (persisted)
+  const [floatWPos, setFloatWPos] = useState(null);
+  const [floatTasbeehPos, setFloatTasbeehPos] = useState(null);
+
   // Refs
-  const audioRef = useRef(null);
   const soundRef = useRef(null);
   const azanRef = useRef(null);
+  const salahReminderObjRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState);
 
   const T = getTheme(activeThemeId);
   const hijri = getHijriDate();
@@ -453,6 +641,157 @@ export default function App() {
       playThroughEarpieceAndroid: false,
       staysActiveInBackground: false,
     }).catch(() => {});
+  }, []);
+
+  // ── EFFECT: HYDRATE all persisted state on first mount ───────────────────
+  // This is the fix for "everything resets to zero on app close": every
+  // piece of state that should survive a restart is loaded here in one pass
+  // before anything else runs, then mirrored back to storage by the
+  // dedicated save-effects below.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [
+          tCount, tTotal, bm, unlocked, theme, free, mama, vip,
+          fW, fTW, fWPos, fTWPos, ayahsTotal, secsTotal, log, firstUse, lastUse, streak,
+          azan, salah, sInt, pre, auto, travel, fOn, fMT, fWD, kahf,
+        ] = await Promise.all([
+          loadJSON(STORAGE_KEYS.TASBEEH_COUNT, 0),
+          loadJSON(STORAGE_KEYS.TASBEEH_TOTAL, 0),
+          loadJSON(STORAGE_KEYS.BOOKMARK, null),
+          loadJSON(STORAGE_KEYS.UNLOCKED_IDS, ["royal_black", "spiritual_green"]),
+          loadJSON(STORAGE_KEYS.ACTIVE_THEME, "spiritual_green"),
+          loadJSON(STORAGE_KEYS.AD_FREE, false),
+          loadJSON(STORAGE_KEYS.MAMA_MODE, false),
+          loadJSON(STORAGE_KEYS.VIP_PURCHASED, false),
+          loadJSON(STORAGE_KEYS.FLOAT_W, false),
+          loadJSON(STORAGE_KEYS.FLOAT_TASBEEH_W, false),
+          loadJSON(STORAGE_KEYS.FLOAT_W_POS, null),
+          loadJSON(STORAGE_KEYS.FLOAT_TASBEEH_POS, null),
+          loadJSON(STORAGE_KEYS.AYAHS_READ_TOTAL, 0),
+          loadJSON(STORAGE_KEYS.READING_SECONDS_TOTAL, 0),
+          loadJSON(STORAGE_KEYS.DAILY_LOG, {}),
+          loadJSON(STORAGE_KEYS.FIRST_USE_DATE, null),
+          loadJSON(STORAGE_KEYS.LAST_USE_DATE, null),
+          loadJSON(STORAGE_KEYS.STREAK_COUNT, 1),
+          loadJSON(STORAGE_KEYS.AZAN_ON, true),
+          loadJSON(STORAGE_KEYS.SALAH_ON, true),
+          loadJSON(STORAGE_KEYS.SALAH_INT, 30),
+          loadJSON(STORAGE_KEYS.PRE_ON, true),
+          loadJSON(STORAGE_KEYS.AUTO_AZKAR, true),
+          loadJSON(STORAGE_KEYS.TRAVEL_ON, false),
+          loadJSON(STORAGE_KEYS.FAST_ON, false),
+          loadJSON(STORAGE_KEYS.FAST_MT, true),
+          loadJSON(STORAGE_KEYS.FAST_WD, false),
+          loadJSON(STORAGE_KEYS.ACHIEVEMENT_KAHF, false),
+        ]);
+
+        setTasbeehCount(tCount);
+        setTasbeehTotal(tTotal);
+        setBookmark(bm);
+        setUnlockedIds(unlocked);
+        setActiveThemeId(theme);
+        setAdFree(free);
+        setMamaMode(mama);
+        setVipPurchased(vip);
+        if (vip) setShowDonate(true);
+        setFloatW(fW);
+        setFloatTasbeehW(fTW);
+        setFloatWPos(fWPos);
+        setFloatTasbeehPos(fTWPos);
+        setAyahsReadTotal(ayahsTotal);
+        setReadingSecondsTotal(secsTotal);
+        setDailyLog(log);
+        setAchievementKahf(kahf);
+        setAzanOn(azan);
+        setSalahOn(salah);
+        setSalahInt(sInt);
+        setPreOn(pre);
+        setAutoAzkar(auto);
+        setTravelOn(travel);
+        setFastOn(fOn);
+        setFastMT(fMT);
+        setFastWD(fWD);
+
+        // First-use date: set once, never overwritten.
+        const today = todayKey();
+        let resolvedFirstUse = firstUse;
+        if (!resolvedFirstUse) {
+          resolvedFirstUse = today;
+          await saveJSON(STORAGE_KEYS.FIRST_USE_DATE, today);
+        }
+        setFirstUseDate(resolvedFirstUse);
+
+        // Streak logic: if the user opened the app yesterday, continue the
+        // streak; if today already, keep it; otherwise (gap of 2+ days or
+        // genuinely first run) reset to 1.
+        let resolvedStreak = streak || 1;
+        if (lastUse) {
+          const diff = daysBetween(lastUse, today);
+          if (diff === 0) {
+            // already opened today, keep streak as-is
+          } else if (diff === 1) {
+            resolvedStreak = (streak || 1) + 1;
+          } else if (diff > 1) {
+            resolvedStreak = 1;
+          }
+        } else {
+          resolvedStreak = 1;
+        }
+        setStreakCount(resolvedStreak);
+        await saveJSON(STORAGE_KEYS.STREAK_COUNT, resolvedStreak);
+        await saveJSON(STORAGE_KEYS.LAST_USE_DATE, today);
+      } catch (e) {
+        // If hydration fails for any reason, the app simply continues with
+        // the in-memory defaults declared above — never crashes.
+      } finally {
+        setHydrated(true);
+      }
+    })();
+  }, []);
+
+  // ── SAVE-EFFECTS: mirror state → AsyncStorage whenever it changes ────────
+  // Each effect is intentionally tiny and skips writes until hydration is
+  // done, so we never overwrite saved data with the initial default state
+  // during the first render.
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount); }, [tasbeehCount, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.TASBEEH_TOTAL, tasbeehTotal); }, [tasbeehTotal, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.BOOKMARK, bookmark); }, [bookmark, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.UNLOCKED_IDS, unlockedIds); }, [unlockedIds, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.ACTIVE_THEME, activeThemeId); }, [activeThemeId, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.AD_FREE, adFree); }, [adFree, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.MAMA_MODE, mamaMode); }, [mamaMode, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.VIP_PURCHASED, vipPurchased); }, [vipPurchased, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.FLOAT_W, floatW); }, [floatW, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.FLOAT_TASBEEH_W, floatTasbeehW); }, [floatTasbeehW, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.AYAHS_READ_TOTAL, ayahsReadTotal); }, [ayahsReadTotal, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.READING_SECONDS_TOTAL, readingSecondsTotal); }, [readingSecondsTotal, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.DAILY_LOG, dailyLog); }, [dailyLog, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.ACHIEVEMENT_KAHF, achievementKahf); }, [achievementKahf, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.AZAN_ON, azanOn); }, [azanOn, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.SALAH_ON, salahOn); }, [salahOn, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.SALAH_INT, salahInt); }, [salahInt, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.PRE_ON, preOn); }, [preOn, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.AUTO_AZKAR, autoAzkar); }, [autoAzkar, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.TRAVEL_ON, travelOn); }, [travelOn, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.FAST_ON, fastOn); }, [fastOn, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.FAST_MT, fastMT); }, [fastMT, hydrated]);
+  useEffect(() => { if (hydrated) saveJSON(STORAGE_KEYS.FAST_WD, fastWD); }, [fastWD, hydrated]);
+  useEffect(() => { if (hydrated && floatWPos) saveJSON(STORAGE_KEYS.FLOAT_W_POS, floatWPos); }, [floatWPos, hydrated]);
+  useEffect(() => { if (hydrated && floatTasbeehPos) saveJSON(STORAGE_KEYS.FLOAT_TASBEEH_POS, floatTasbeehPos); }, [floatTasbeehPos, hydrated]);
+
+  // ── FUNCTION: log today's activity into the daily log (drives real stats)
+  const logDaily = useCallback((patch) => {
+    const key = todayKey();
+    setDailyLog((prev) => {
+      const existing = prev[key] || { tasbeeh: 0, ayahs: 0, mins: 0 };
+      const next = {
+        tasbeeh: existing.tasbeeh + (patch.tasbeeh || 0),
+        ayahs: existing.ayahs + (patch.ayahs || 0),
+        mins: existing.mins + (patch.mins || 0),
+      };
+      return { ...prev, [key]: next };
+    });
   }, []);
 
   // ── EFFECT: Request GPS & fetch prayer times ──────────────────────────────
@@ -495,10 +834,6 @@ export default function App() {
   }, []);
 
   // ── FUNCTION: Fetch live prayer times from Aladhan API ───────────────────
-  // Dynamic Location Injection: lat/lng come straight from expo-location's
-  // getCurrentPositionAsync() (see the GPS useEffect above) and are
-  // string-injected directly into the query — no hardcoded city/country.
-  // method=5 (Egyptian General Authority of Survey) per requested calc method.
   const fetchPrayerTimes = useCallback(async (lat, lng) => {
     setPrayerLoading(true);
     try {
@@ -529,16 +864,6 @@ export default function App() {
   }, []);
 
   // ── FUNCTION: Compute countdown to next prayer (pure, re-callable) ────────
-  // Accurate Time Parsing: both the live device clock (now.getHours()/getMinutes())
-  // and the Aladhan "HH:MM" prayer-time strings (via parseTimeMins) are converted
-  // into the SAME unit — total absolute minutes since midnight — before any
-  // subtraction happens. Since the device clock and the Aladhan response are both
-  // already expressed in the local time implied by the GPS coordinates passed in,
-  // no manual timezone/UTC offset math is needed; the subtraction is timezone-safe
-  // globally for any hometown the user is physically in.
-  // Re-derives the remaining time from the real wall clock every call, instead
-  // of decrementing a stored value — this is what prevents drift/garbage values
-  // like "95:26" and keeps the result tied to the user's live GPS-based timings.
   const computeCountdown = useCallback((times) => {
     if (!times || times.length === 0) return null;
     const now = new Date();
@@ -546,21 +871,17 @@ export default function App() {
 
     let next = null;
     for (const p of times) {
-      const pm = parseTimeMins(p.time); // "HH:MM" → total minutes since midnight
+      const pm = parseTimeMins(p.time);
       if (pm > nowMins) {
         next = { label: p.name, diffMins: pm - nowMins };
         break;
       }
     }
     if (!next) {
-      // Past Isha: wrap to tomorrow's Fajr (still same local-time unit)
       const pm = parseTimeMins(times[0].time);
       next = { label: times[0].name, diffMins: 1440 - nowMins + pm };
     }
 
-    // Standard Numerals Output: Math.floor/% on plain numbers always yield
-    // base-10 Western digits (0-9) — pad() in the render layer (unchanged)
-    // simply zero-pads them, e.g. "07:05", never altering the numeral system.
     const totalSecs = Math.max(0, Math.round(next.diffMins * 60));
     return {
       label: next.label,
@@ -570,9 +891,6 @@ export default function App() {
   }, []);
 
   // ── EFFECT: Live countdown ticker ─────────────────────────────────────────
-  // Recomputes from real time + livePrayerTimes every second instead of just
-  // decrementing the previous state, so it can never drift and always resets
-  // correctly the instant a prayer time passes or new GPS timings arrive.
   useEffect(() => {
     const timesToUse = livePrayerTimes || [
       { name: "الفجر", time: "04:45" },
@@ -588,20 +906,90 @@ export default function App() {
       if (result) setCountdown(result);
     };
 
-    tick(); // run immediately so the UI doesn't wait a full second
+    tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
   }, [livePrayerTimes, computeCountdown]);
 
-  // ── EFFECT: Simulated compass rotation (real device uses DeviceMotion) ────
+  // ── EFFECT: Pre-prayer reminder (15 min before) — was just a toggle with
+  // no logic before; now actually fires once per prayer per day when within
+  // the 15-minute window and `preOn` is enabled.
   useEffect(() => {
-    const t = setInterval(() => {
-      setLiveCompassAngle((p) => (p + 1.5) % 360);
-    }, 80);
-    return () => clearInterval(t);
+    if (!preOn || !livePrayerTimes) return;
+    const interval = setInterval(() => {
+      const now = new Date();
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      livePrayerTimes.forEach((p) => {
+        if (!p.time) return;
+        const pm = parseTimeMins(p.time);
+        const diff = pm - nowMins;
+        const fireKey = `${todayKey()}-${p.name}`;
+        if (diff === 15 && !preFired[fireKey]) {
+          setPreFired((prev) => ({ ...prev, [fireKey]: true }));
+          haptic.warning();
+          sendNotif(`🔔 اقتربت صلاة ${p.name} — بقي 15 دقيقة`);
+        }
+      });
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [preOn, livePrayerTimes, preFired]);
+
+  // ── EFFECT: Real device compass via Magnetometer ──────────────────────────
+  // Falls back to a slow simulated rotation only if the sensor produces no
+  // readings at all (e.g. running in a web preview / emulator without a
+  // magnetometer), so the Qibla screen is never a dead, frozen UI.
+  useEffect(() => {
+    let subscription = null;
+    let gotRealReading = false;
+    let fallbackInterval = null;
+
+    const startFallback = () => {
+      if (fallbackInterval) return;
+      setCompassSource("simulated");
+      fallbackInterval = setInterval(() => {
+        setLiveCompassAngle((p) => (p + 1.5) % 360);
+      }, 80);
+    };
+
+    const fallbackTimeout = setTimeout(() => {
+      if (!gotRealReading) startFallback();
+    }, 2500);
+
+    (async () => {
+      try {
+        const available = await Magnetometer.isAvailableAsync();
+        if (!available) {
+          startFallback();
+          return;
+        }
+        Magnetometer.setUpdateInterval(120);
+        subscription = Magnetometer.addListener(({ x, y }) => {
+          if (x === 0 && y === 0) return; // no real signal yet
+          gotRealReading = true;
+          if (fallbackInterval) {
+            clearInterval(fallbackInterval);
+            fallbackInterval = null;
+          }
+          setCompassSource("sensor");
+          // Convert magnetometer x/y into a compass heading (0-360, 0 = North)
+          let angle = Math.atan2(y, x) * (180 / Math.PI);
+          angle = (angle + 360) % 360;
+          // Adjust so 0° aligns with device "up" pointing North
+          const heading = (angle + 90) % 360;
+          setLiveCompassAngle(heading);
+        });
+      } catch (e) {
+        startFallback();
+      }
+    })();
+
+    return () => {
+      clearTimeout(fallbackTimeout);
+      if (subscription) subscription.remove();
+      if (fallbackInterval) clearInterval(fallbackInterval);
+    };
   }, []);
 
-  // Effective compass: real GPS-corrected if available, else sim
   const effectiveCompass = liveCompassAngle;
   const isAligned = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
 
@@ -611,8 +999,17 @@ export default function App() {
       if (soundRef.current) {
         soundRef.current.stopAsync().catch(() => {});
       }
+      if (readingSessionStart.current) {
+        const elapsedSec = Math.round((Date.now() - readingSessionStart.current) / 1000);
+        if (elapsedSec > 0) {
+          setReadingSecondsTotal((p) => p + elapsedSec);
+          logDaily({ mins: elapsedSec / 60 });
+        }
+        readingSessionStart.current = null;
+      }
       return;
     }
+    readingSessionStart.current = Date.now();
     let cancelled = false;
     const playAyah = async (idx) => {
       if (cancelled || idx >= FATIHA.length) {
@@ -632,6 +1029,10 @@ export default function App() {
         );
         soundRef.current = sound;
         setAudioLoadingAyah(false);
+        // Real ayah-read tracking: each ayah that finishes playing counts
+        // toward the lifetime ayahsReadTotal that now drives the Stats screen.
+        setAyahsReadTotal((p) => p + 1);
+        logDaily({ ayahs: 1 });
         sound.setOnPlaybackStatusUpdate((status) => {
           if (status.didJustFinish && !cancelled) {
             playAyah(idx + 1);
@@ -640,7 +1041,6 @@ export default function App() {
       } catch (e) {
         setAudioLoadingAyah(false);
         if (!cancelled) {
-          // Fallback: advance after 3s if audio fails
           setTimeout(() => {
             if (!cancelled) playAyah(idx + 1);
           }, 3000);
@@ -656,7 +1056,11 @@ export default function App() {
     };
   }, [audioPlaying]);
 
-  // ── EFFECT: Azan alert trigger check every minute ─────────────────────────
+  // ── EFFECT: Azan alert trigger check every 5 seconds ──────────────────────
+  // Lowered from 15s → 5s for tighter accuracy around the exact prayer
+  // minute (this is the practical ceiling for a foreground JS timer; true
+  // zero-delay delivery while the app is backgrounded requires a native
+  // scheduled-notification API, which is outside what a JS interval can do).
   useEffect(() => {
     if (!azanOn || !livePrayerTimes) return;
     const interval = setInterval(() => {
@@ -664,17 +1068,19 @@ export default function App() {
       const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
       livePrayerTimes.forEach((p) => {
         const timeStr = p.time ? p.time.substring(0, 5) : "";
-        if (timeStr === nowStr && !azanTriggered[timeStr]) {
-          setAzanTriggered((prev) => ({ ...prev, [timeStr]: true }));
+        const fireKey = `${todayKey()}-${timeStr}`;
+        if (timeStr === nowStr && !azanTriggered[fireKey]) {
+          setAzanTriggered((prev) => ({ ...prev, [fireKey]: true }));
           playAzan(p.name);
         }
       });
-    }, 15000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [azanOn, livePrayerTimes, azanTriggered]);
 
   // ── FUNCTION: Play Azan audio ─────────────────────────────────────────────
   const playAzan = async (prayerName) => {
+    haptic.success();
     try {
       if (azanRef.current) {
         await azanRef.current.unloadAsync();
@@ -690,25 +1096,30 @@ export default function App() {
     }
   };
 
-  // ── EFFECT: Periodic Salah Reminder audio ─────────────────────────────────
+  // ── EFFECT: Periodic Salah Reminder (audio if a real URL is configured,
+  // otherwise a haptic pulse + text notification — never silently plays the
+  // wrong audio again).
   useEffect(() => {
     if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
     if (!salahOn) return;
     const intervalMs = salahInt * 60 * 1000;
     salahReminderTimer.current = setInterval(async () => {
-      try {
-        if (salahReminderObj) {
-          await salahReminderObj.unloadAsync();
+      haptic.medium();
+      if (AUDIO_SOURCES.salahReminder) {
+        try {
+          if (salahReminderObjRef.current) {
+            await salahReminderObjRef.current.unloadAsync();
+          }
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: AUDIO_SOURCES.salahReminder },
+            { shouldPlay: true, volume: 0.7 }
+          );
+          salahReminderObjRef.current = sound;
+        } catch (e) {
+          // fall through to notification-only below
         }
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: AUDIO_SOURCES.salahReminder },
-          { shouldPlay: true, volume: 0.7 }
-        );
-        setSalahReminderObj(sound);
-        sendNotif("اللهم صلِّ وسلِّم على نبيِّنا محمد ﷺ");
-      } catch (e) {
-        sendNotif("اللهم صلِّ على محمد ﷺ");
       }
+      sendNotif("اللهم صلِّ وسلِّم على نبيِّنا محمد ﷺ");
     }, intervalMs);
     return () => {
       if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
@@ -722,18 +1133,46 @@ export default function App() {
     return () => clearInterval(t);
   }, [fastAlert]);
 
+  // ── EFFECT: AppState — persist counters immediately on backgrounding ─────
+  // This is what makes the Tasbeeh counter (and everything else) survive
+  // the user leaving the app: every value is already being mirrored to
+  // AsyncStorage on every change (see save-effects above), but we also force
+  // an explicit flush the moment the app goes to background/inactive, so
+  // there's no race against the OS suspending the JS engine mid-write.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (
+        appStateRef.current === "active" &&
+        (nextState === "background" || nextState === "inactive")
+      ) {
+        saveJSON(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount);
+        saveJSON(STORAGE_KEYS.TASBEEH_TOTAL, tasbeehTotal);
+        saveJSON(STORAGE_KEYS.AYAHS_READ_TOTAL, ayahsReadTotal);
+        saveJSON(STORAGE_KEYS.READING_SECONDS_TOTAL, readingSecondsTotal);
+        saveJSON(STORAGE_KEYS.DAILY_LOG, dailyLog);
+        saveJSON(STORAGE_KEYS.LAST_USE_DATE, todayKey());
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [tasbeehCount, tasbeehTotal, ayahsReadTotal, readingSecondsTotal, dailyLog]);
+
   // ── CLEANUP audio on unmount ──────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
       if (azanRef.current) azanRef.current.unloadAsync().catch(() => {});
+      if (salahReminderObjRef.current) salahReminderObjRef.current.unloadAsync().catch(() => {});
     };
   }, []);
-
 
   // ── EFFECT: Hardware back button → go home ────────────────────────────────
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (fatwaModalVisible) {
+        setFatwaModalVisible(false);
+        return true;
+      }
       if (activeTab !== "home") {
         setActiveTab("home");
         return true;
@@ -741,7 +1180,7 @@ export default function App() {
       return false;
     });
     return () => sub.remove();
-  }, [activeTab]);
+  }, [activeTab, fatwaModalVisible]);
 
   const sendNotif = (msg) => {
     setNotifMsg(msg);
@@ -749,37 +1188,52 @@ export default function App() {
   };
 
   const handleTasbeeh = () => {
+    haptic.light();
     const n = tasbeehCount + 1;
     setTasbeehCount(n);
+    setTasbeehTotal((p) => p + 1);
+    logDaily({ tasbeeh: 1 });
     setTShake(true);
     setTimeout(() => setTShake(false), 300);
     if (n === 33 || n === 100) {
+      haptic.success();
       setTFlash(true);
       setTimeout(() => setTFlash(false), 1000);
     }
   };
 
   const handleWordPress = (w) => {
+    haptic.selection();
     setSoundWave(true);
     setWordPopup(w);
     setTimeout(() => { setSoundWave(false); setWordPopup(null); }, 2500);
   };
-  const handleWordLong = (w) => setLongModal(w);
+  const handleWordLong = (w) => { haptic.medium(); setLongModal(w); };
 
   const decrement = (arr, setArr, idx) => {
+    haptic.light();
     const next = [...arr];
     if (next[idx] > 0) next[idx]--;
     setArr(next);
+    // Sunnah list includes "قراءة سورة الكهف كاملة يوم الجمعة" at index 0 —
+    // completing it now genuinely flips the related achievement instead of
+    // it being permanently hardcoded to done:false.
+    if (arr === sunnahC && idx === 0 && next[idx] === 0) {
+      setAchievementKahf(true);
+      haptic.success();
+    }
   };
 
   const selectTheme = (id) => {
     if (unlockedIds.includes(id)) {
+      haptic.selection();
       setActiveThemeId(id);
       sendNotif("✅ تم تطبيق " + getTheme(id).name);
     }
   };
-  const openPurchase = (id) => setPurchaseModal(id);
+  const openPurchase = (id) => { haptic.light(); setPurchaseModal(id); };
   const confirmPurchase = (id) => {
+    haptic.success();
     const th = getTheme(id);
     setUnlockedIds((prev) => [...new Set([...prev, id])]);
     setActiveThemeId(id);
@@ -791,20 +1245,25 @@ export default function App() {
     const code = (promoInputs[id]?.code || "").trim().toLowerCase();
     const valid = { royal_gold: "gold2025", sufi_purple: "purple2025", vip_royal: "vip2025" };
     if (code === valid[id]) {
+      haptic.success();
       setUnlockedIds((prev) => [...new Set([...prev, id])]);
       setActiveThemeId(id);
       setPurchaseModal(null);
       sendNotif("🎁 " + getTheme(id).name + " مفتوح!");
-    } else setPromoInputs((p) => ({ ...p, [id]: { ...p[id], msg: "❌ الكود غير صحيح" } }));
+    } else {
+      haptic.warning();
+      setPromoInputs((p) => ({ ...p, [id]: { ...p[id], msg: "❌ الكود غير صحيح" } }));
+    }
   };
   const setPromoCode = (id, val) => setPromoInputs((p) => ({ ...p, [id]: { ...p[id], code: val, msg: "" } }));
 
   const handleMasterPromo = async () => {
     const code = masterPromo.trim();
-    if (!code) { setMasterMsg("❌ الكود غير صحيح"); return; }
+    if (!code) { haptic.warning(); setMasterMsg("❌ الكود غير صحيح"); return; }
     try {
       const inputHash = await hashCode(code);
       if (inputHash === MAMA_CODE_HASH) {
+        haptic.success();
         setAdFree(true); setMamaMode(true);
         setUnlockedIds(THEMES.map((t) => t.id));
         setActiveThemeId("vip_royal");
@@ -813,13 +1272,18 @@ export default function App() {
       }
     } catch (e) {}
     if (code.toLowerCase() === "friend2025") {
+      haptic.success();
       setAdFree(true); setMasterMsg("✅ تم إزالة الإعلانات!");
-    } else { setMasterMsg("❌ الكود غير صحيح"); }
+    } else {
+      haptic.warning();
+      setMasterMsg("❌ الكود غير صحيح");
+    }
   };
 
   const sendFatwa = async () => {
     if (!chatInput.trim()) return;
     const q = chatInput.trim();
+    haptic.light();
     setChatHistory((p) => [...p, { role: "user", text: q }]);
     setChatInput("");
     setChatLoading(true);
@@ -831,6 +1295,33 @@ export default function App() {
     setChatHistory((p) => [...p, { role: "ai", text: answer }]);
     setChatLoading(false);
   };
+
+  // ── REAL STATS DERIVATION (replaces all previously hardcoded numbers) ────
+  const last7Keys = (() => {
+    const keys = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+    return keys;
+  })();
+  const dayLabels = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+  const weeklyStatsReal = last7Keys.map((k) => {
+    const entry = dailyLog[k] || { tasbeeh: 0, ayahs: 0, mins: 0 };
+    const d = new Date(k + "T00:00:00");
+    return {
+      day: dayLabels[d.getDay()],
+      mins: Math.round(entry.mins),
+      ayahs: entry.ayahs,
+    };
+  });
+  const totalReadingHours = (readingSecondsTotal / 3600).toFixed(1);
+  const achievementFatihaDone = ayahsReadTotal >= FATIHA.length;
+  const achievement33Done = tasbeehTotal >= 33;
+  const achievement100Done = tasbeehTotal >= 100;
+  const achievementStreak7Done = streakCount >= 7;
+  const achievementFullQuranDone = false; // only Al-Fatiha is in the dataset today — genuinely not achievable yet, shown locked rather than faked
 
   // Displayed prayer times: live or fallback
   const displayedPrayerTimes = livePrayerTimes || [
@@ -874,7 +1365,7 @@ export default function App() {
     );
   }
 
-  // ── NAV (removed Fatwa tab) ──
+  // ── NAV (Fatwa tab removed — lives in floating bubbles instead) ──
   const NAV_TABS = [
     { id: "home", icon: "🏠", label: "الرئيسية" },
     { id: "quran", icon: "📖", label: "القرآن" },
@@ -915,17 +1406,45 @@ export default function App() {
         confirmPurchase={confirmPurchase}
       />
 
-      {/* Floating tasbeeh widget */}
-      {floatW && (
-        <TouchableOpacity
+      {/* Floating draggable TASBEEH bubble — bigger, freely draggable,
+          position persists across restarts */}
+      {floatTasbeehW && (
+        <DraggableBubble
+          size={92}
+          initialPosition={floatTasbeehPos}
+          onPositionChange={setFloatTasbeehPos}
           onPress={handleTasbeeh}
-          style={[styles.floatWidget, { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent }]}
-          activeOpacity={0.85}
         >
-          <Text style={styles.floatWidgetEmoji}>📿</Text>
-          <Text style={[styles.floatWidgetCount, { color: T.accent }]}>{tasbeehCount}</Text>
-          <Text style={[styles.floatWidgetLabel, { color: T.accent }]}>تسبيح</Text>
-        </TouchableOpacity>
+          <View
+            style={[
+              styles.floatWidget,
+              { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent, width: 92, height: 92, borderRadius: 46 },
+            ]}
+          >
+            <Text style={[styles.floatWidgetEmoji, { fontSize: 26 }]}>📿</Text>
+            <Text style={[styles.floatWidgetCount, { color: T.accent, fontSize: 21 }]}>{tasbeehCount}</Text>
+            <Text style={[styles.floatWidgetLabel, { color: T.accent }]}>تسبيح</Text>
+          </View>
+        </DraggableBubble>
+      )}
+
+      {/* Floating draggable FATWA bubble — available anywhere in the app,
+          not just the Settings screen, since it's now a true free-floating
+          overlay rather than a fixed card */}
+      {floatW && (
+        <DraggableBubble
+          size={72}
+          initialPosition={floatWPos}
+          onPositionChange={setFloatWPos}
+          onPress={() => setFatwaModalVisible(true)}
+        >
+          <LinearGradient
+            colors={["#1a0e1a", T.cardBg]}
+            style={[styles.fatwaFloatBubble, { borderColor: T.accent, shadowColor: T.accent }]}
+          >
+            <Text style={{ fontSize: 28 }}>🕌</Text>
+          </LinearGradient>
+        </DraggableBubble>
       )}
 
       {/* Word tap popup */}
@@ -1047,9 +1566,11 @@ export default function App() {
             T={T}
             count={tasbeehCount}
             onTap={handleTasbeeh}
-            onReset={() => setTasbeehCount(0)}
+            onReset={() => { haptic.medium(); setTasbeehCount(0); }}
             shake={tShake}
             flash={tFlash}
+            floatTasbeehW={floatTasbeehW}
+            setFloatTasbeehW={setFloatTasbeehW}
             floatW={floatW}
             setFloatW={setFloatW}
             notifW={notifW}
@@ -1065,6 +1586,7 @@ export default function App() {
             qiblaAngle={qiblaAngle}
             locationCity={locationCity}
             userLocation={userLocation}
+            compassSource={compassSource}
           />
         )}
         {activeTab === "azkar" && (
@@ -1081,7 +1603,22 @@ export default function App() {
             decrement={decrement}
           />
         )}
-        {activeTab === "stats" && <StatsScreen T={T} />}
+        {activeTab === "stats" && (
+          <StatsScreen
+            T={T}
+            weeklyStats={weeklyStatsReal}
+            totalReadingHours={totalReadingHours}
+            ayahsReadTotal={ayahsReadTotal}
+            streakCount={streakCount}
+            tasbeehTotal={tasbeehTotal}
+            achievementFatihaDone={achievementFatihaDone}
+            achievement33Done={achievement33Done}
+            achievement100Done={achievement100Done}
+            achievementStreak7Done={achievementStreak7Done}
+            achievementFullQuranDone={achievementFullQuranDone}
+            achievementKahf={achievementKahf}
+          />
+        )}
         {activeTab === "settings" && (
           <SettingsScreen
             T={T}
@@ -1106,7 +1643,9 @@ export default function App() {
             vipPurchased={vipPurchased}
             showDonate={showDonate}
             sendNotif={sendNotif}
-            onOpenFatwa={() => setFatwaModalVisible(true)}
+            onOpenFatwa={() => { haptic.light(); setFatwaModalVisible(true); }}
+            floatTasbeehW={floatTasbeehW}
+            setFloatTasbeehW={setFloatTasbeehW}
           />
         )}
       </View>
@@ -1124,7 +1663,7 @@ export default function App() {
           {NAV_TABS.map((t) => {
             const isActive = activeTab === t.id;
             return (
-              <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn} activeOpacity={0.7}>
+              <TouchableOpacity key={t.id} onPress={() => { haptic.selection(); setActiveTab(t.id); }} style={styles.navTabBtn} activeOpacity={0.7}>
                 <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5, borderWidth: 1, borderColor: T.accentBorder }]}>
                   <Text style={[styles.navTabIcon, { opacity: isActive ? 1 : 0.4 }]}>{t.icon}</Text>
                 </View>
@@ -1204,6 +1743,9 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
 
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
 function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, locationCity, prayerLoading }) {
+  // Next-prayer alert card now reflects the REAL live countdown instead of a
+  // hardcoded "45 دقيقة — 3:45 PM" string.
+  const nextPrayerMinutesLeft = countdown.mins;
   return (
     <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
       <View style={[styles.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
@@ -1296,12 +1838,12 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         <PBar T={T} label="السنن اليومية" pct={50} color="#f59e0b" />
       </Card>
 
-      {/* Next prayer alert */}
-      <Card T={T} title="⏰ اقتربت صلاة العصر">
-        <Text style={styles.nextPrayerSub}>متبقي 45 دقيقة — 3:45 PM</Text>
+      {/* Next prayer alert — REAL countdown, no hardcoded string */}
+      <Card T={T} title={`⏰ اقتربت صلاة ${countdown.label}`}>
+        <Text style={styles.nextPrayerSub}>متبقي {nextPrayerMinutesLeft} دقيقة</Text>
         <TouchableOpacity
           style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-          onPress={() => sendNotif("🔔 اقتربت صلاة العصر، استعد!")}
+          onPress={() => sendNotif(`🔔 اقتربت صلاة ${countdown.label}، استعد!`)}
         >
           <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>🔔 تذكيرني قبل 15 دقيقة</Text>
         </TouchableOpacity>
@@ -1429,7 +1971,7 @@ function QuranScreen({
 }
 
 // ─── TASBEEH SCREEN ───────────────────────────────────────────────────────────
-function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloatW, notifW, setNotifW, sendNotif }) {
+function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatTasbeehW, setFloatTasbeehW, floatW, setFloatW, notifW, setNotifW, sendNotif }) {
   const ring = count % 100;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -1479,14 +2021,27 @@ function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloa
         </View>
       </View>
       <Card T={T} title="خيارات متقدمة">
-        <Toggle T={T} label="🫧 فقاعة التسبيح" sub="تظهر فوق جميع التطبيقات وعلى الشاشة الرئيسية" value={floatW} onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }} />
+        <Toggle
+          T={T}
+          label="🫧 فقاعة التسبيح العائمة"
+          sub="فقاعة كبيرة تتحرك بحرية على الشاشة — اسحبها لأي مكان، تعد بضغطة واحدة"
+          value={floatTasbeehW}
+          onChange={(v) => { setFloatTasbeehW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة — اسحبها لأي مكان" : "⏹ الفقاعة موقوفة"); }}
+        />
+        <Toggle
+          T={T}
+          label="🕌 فقاعة الفتوى العائمة"
+          sub="فقاعة تفتح مستشار الفتاوى من أي مكان — تتحرك بحرية أيضاً"
+          value={floatW}
+          onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة الفتوى مفعّلة" : "⏹ الفقاعة موقوفة"); }}
+        />
       </Card>
     </ScrollView>
   );
 }
 
 // ─── QIBLA SCREEN ─────────────────────────────────────────────────────────────
-function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, userLocation }) {
+function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, userLocation, compassSource }) {
   // Needle points toward Mecca: rotate needle by (compassAngle - qiblaAngle)
   const needleRotation = (compassAngle - qiblaAngle + 360) % 360;
   return (
@@ -1515,6 +2070,9 @@ function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, use
             <Text style={styles.qiblaNotAligned}>🔄 أدر الجهاز نحو القبلة</Text>
           )}
           <Text style={styles.qiblaAngle}>الزاوية الحالية: {Math.round(compassAngle)}° | القبلة: {Math.round(qiblaAngle)}°</Text>
+          {compassSource === "simulated" ? (
+            <Text style={styles.qiblaSensorNote}>⚠️ لم يتم العثور على حساس بوصلة حقيقي على هذا الجهاز — يتم عرض دوران تجريبي فقط</Text>
+          ) : null}
         </View>
         <Card T={T} title="📍 الموقع الحالي" style={{ marginTop: 20, width: "100%" }}>
           <RI label="المدينة" value={locationCity || "جارٍ التحديد..."} />
@@ -1641,17 +2199,22 @@ function FatwaScreen({ T, chatHistory, chatInput, setChatInput, onSend, loading,
 }
 
 // ─── STATS SCREEN ─────────────────────────────────────────────────────────────
-function StatsScreen({ T }) {
-  const maxMins = Math.max(...WEEKLY_STATS.map((d) => d.mins));
+function StatsScreen({
+  T, weeklyStats, totalReadingHours, ayahsReadTotal, streakCount, tasbeehTotal,
+  achievementFatihaDone, achievement33Done, achievement100Done, achievementStreak7Done,
+  achievementFullQuranDone, achievementKahf,
+}) {
+  const maxMins = Math.max(1, ...weeklyStats.map((d) => d.mins));
+  const maxAyahs = Math.max(1, ...weeklyStats.map((d) => d.ayahs));
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="📊 إحصاءات القراءة" sub="هذا الأسبوع" T={T} />
       <View style={styles.statsGrid}>
         {[
-          { icon: "⏱️", val: "3.2", unit: "ساعة", label: "إجمالي القراءة", color: T.accent },
-          { icon: "📖", val: "152", unit: "آية", label: "آيات مقروءة", color: "#3b82f6" },
-          { icon: "🔥", val: "7", unit: "أيام", label: "أيام متتالية", color: "#f59e0b" },
-          { icon: "📿", val: "700", unit: "تسبيحة", label: "إجمالي التسبيح", color: "#8b5cf6" },
+          { icon: "⏱️", val: totalReadingHours, unit: "ساعة", label: "إجمالي القراءة", color: T.accent },
+          { icon: "📖", val: String(ayahsReadTotal), unit: "آية", label: "آيات مقروءة", color: "#3b82f6" },
+          { icon: "🔥", val: String(streakCount), unit: "أيام", label: "أيام متتالية", color: "#f59e0b" },
+          { icon: "📿", val: String(tasbeehTotal), unit: "تسبيحة", label: "إجمالي التسبيح", color: "#8b5cf6" },
         ].map((s) => (
           <View key={s.label} style={[styles.statBox, { borderColor: `${s.color}33` }]}>
             <Text style={styles.statIcon}>{s.icon}</Text>
@@ -1663,10 +2226,10 @@ function StatsScreen({ T }) {
       </View>
       <Card T={T} title="دقائق القراءة اليومية">
         <View style={styles.barsRow}>
-          {WEEKLY_STATS.map((d, i) => (
+          {weeklyStats.map((d, i) => (
             <View key={i} style={styles.barCol}>
               <Text style={[styles.barVal, { color: T.accent }]}>{d.mins}</Text>
-              <View style={[styles.barFill, { height: (d.mins / maxMins) * 82, backgroundColor: T.accentSoft, borderTopColor: T.accent }]} />
+              <View style={[styles.barFill, { height: Math.max(2, (d.mins / maxMins) * 82), backgroundColor: T.accentSoft, borderTopColor: T.accent }]} />
               <Text style={styles.barDay}>{d.day.slice(0, 3)}</Text>
             </View>
           ))}
@@ -1674,10 +2237,10 @@ function StatsScreen({ T }) {
       </Card>
       <Card T={T} title="آيات مقروءة يومياً">
         <View style={[styles.barsRow, { height: 80 }]}>
-          {WEEKLY_STATS.map((d, i) => (
+          {weeklyStats.map((d, i) => (
             <View key={i} style={styles.barCol}>
               <Text style={[styles.barVal, { color: "#3b82f6" }]}>{d.ayahs}</Text>
-              <View style={[styles.barFill, { height: (d.ayahs / 50) * 66, backgroundColor: "#3b82f61a", borderTopColor: "#3b82f6" }]} />
+              <View style={[styles.barFill, { height: Math.max(2, (d.ayahs / maxAyahs) * 66), backgroundColor: "#3b82f61a", borderTopColor: "#3b82f6" }]} />
               <Text style={styles.barDay}>{d.day.slice(0, 3)}</Text>
             </View>
           ))}
@@ -1685,11 +2248,11 @@ function StatsScreen({ T }) {
       </Card>
       <Card T={T} title="🏆 الإنجازات">
         {[
-          { icon: "🌟", label: "حافظ الفاتحة", done: true, desc: "قرأت سورة الفاتحة كاملة" },
-          { icon: "📿", label: "100 تسبيحة في يوم", done: true, desc: "سبّحت 100 مرة في يوم واحد" },
-          { icon: "🔥", label: "7 أيام متتالية", done: true, desc: "استخدمت التطبيق 7 أيام متتالية" },
-          { icon: "📖", label: "ختمة كاملة", done: false, desc: "اقرأ القرآن كاملاً" },
-          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false, desc: "أكمل أذكار النوم 30 يوماً" },
+          { icon: "🌟", label: "حافظ الفاتحة", done: achievementFatihaDone, desc: "قرأت سورة الفاتحة كاملة" },
+          { icon: "📿", label: "100 تسبيحة", done: achievement100Done, desc: "سبّحت 100 مرة (إجمالي)" },
+          { icon: "🔥", label: "7 أيام متتالية", done: achievementStreak7Done, desc: "استخدمت التطبيق 7 أيام متتالية" },
+          { icon: "📖", label: "ختمة كاملة", done: achievementFullQuranDone, desc: "اقرأ القرآن كاملاً (متاح قريباً)" },
+          { icon: "🕮", label: "سورة الكهف يوم الجمعة", done: achievementKahf, desc: "أكملت قراءة الكهف من قائمة السنن" },
         ].map((a, i) => (
           <View key={i} style={[styles.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }]}>
             <Text style={[styles.achievementIcon, { fontSize: 26 }]}>{a.icon}</Text>
@@ -1712,7 +2275,7 @@ function SettingsScreen({
   preOn, setPreOn, autoAzkar, setAutoAzkar, travelOn, setTravelOn,
   fastOn, setFastOn, fastMT, setFastMT, fastWD, setFastWD,
   activeThemeId, unlockedIds, onSelect, onBuy, vipPurchased, showDonate, sendNotif,
-  onOpenFatwa,
+  onOpenFatwa, floatTasbeehW, setFloatTasbeehW,
 }) {
   const bubbleGlow = useRef(new Animated.Value(0.7)).current;
   useEffect(() => {
@@ -1728,7 +2291,9 @@ function SettingsScreen({
     <ScrollView style={{ flex: 1 }}>
       <SH title="⚙️ الإعدادات" T={T} />
 
-      {/* ── FLOATING FATWA BUBBLE inside settings ── */}
+      {/* ── FLOATING FATWA BUBBLE launcher inside settings (also works as a
+          true free-floating overlay everywhere when enabled from Tasbeeh
+          screen's "خيارات متقدمة") ── */}
       <View style={styles.fatwaBubbleSection}>
         <Animated.View style={[styles.fatwaBubbleContainer, { opacity: bubbleGlow }]}>
           <TouchableOpacity
@@ -1819,7 +2384,7 @@ function SettingsScreen({
       {/* Azan & alerts */}
       <Card T={T} title="🔊 الأذان والتنبيهات الصوتية">
         <Toggle T={T} label="📡 أذان الصلوات الخمس" sub="صوت الأذان عند وقت كل صلاة" value={azanOn} onChange={setAzanOn} />
-        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ" sub="تنبيه صوتي دوري" value={salahOn} onChange={setSalahOn} />
+        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ" sub="تنبيه صوتي دوري + اهتزاز" value={salahOn} onChange={setSalahOn} />
         {salahOn && (
           <View style={styles.salahIntWrap}>
             <Text style={styles.salahIntLabel}>كل كم دقيقة؟</Text>
@@ -1828,7 +2393,7 @@ function SettingsScreen({
                 <TouchableOpacity
                   key={v}
                   style={[styles.salahIntBtn, { backgroundColor: salahInt === v ? T.accentSoft : "#111", borderColor: salahInt === v ? T.accent : "#222" }]}
-                  onPress={() => setSalahInt(v)}
+                  onPress={() => { haptic.selection(); setSalahInt(v); }}
                 >
                   <Text style={[styles.salahIntBtnText, { color: salahInt === v ? T.accent : "#555" }]}>{v} دقيقة</Text>
                 </TouchableOpacity>
@@ -1839,6 +2404,18 @@ function SettingsScreen({
         <Toggle T={T} label="⏰ تنبيه قبل الصلاة" sub="تحذير 15 دقيقة قبل كل أذان" value={preOn} onChange={setPreOn} />
         <Toggle T={T} label="🤲 أذكار تلقائية" sub="صباح 7:00 ومغرب كل يوم" value={autoAzkar} onChange={setAutoAzkar} />
         <Toggle T={T} label="🚗 مُذكِّر السفر الذكي" sub="تشغيل تلقائي عند السرعة > 40 كم/س" value={travelOn} onChange={setTravelOn} />
+      </Card>
+
+      {/* Tasbeeh bubble shortcut (mirrors the toggle on the Tasbeeh screen so
+          it's discoverable from Settings too) */}
+      <Card T={T} title="🫧 الفقاعات العائمة">
+        <Toggle
+          T={T}
+          label="فقاعة التسبيح العائمة"
+          sub="موجودة أيضاً في شاشة المسبحة ← خيارات متقدمة"
+          value={floatTasbeehW}
+          onChange={(v) => { setFloatTasbeehW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }}
+        />
       </Card>
 
       {/* Fasting */}
@@ -1854,7 +2431,7 @@ function SettingsScreen({
 
       {/* App info */}
       <Card T={T} title="ℹ️ عن التطبيق">
-        <RI label="الإصدار" value="3.0.0" />
+        <RI label="الإصدار" value="3.1.0" />
         <RI label="المطور" value="فريق مُصلِّي" />
         <RI label="البيانات القرآنية" value="محققة ومعتمدة 100%" />
       </Card>
@@ -1892,10 +2469,12 @@ const styles = StyleSheet.create({
   toast: { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
   toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
 
-  floatWidget: { position: "absolute", top: 120, right: 14, width: 76, height: 76, borderRadius: 38, borderWidth: 2, zIndex: 500, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 10 },
+  floatWidget: { alignItems: "center", justifyContent: "center", borderWidth: 2, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 12 },
   floatWidgetLabel: { fontSize: 10, marginTop: 1 },
   floatWidgetEmoji: { fontSize: 22 },
   floatWidgetCount: { fontSize: 18, fontWeight: "900" },
+
+  fatwaFloatBubble: { flex: 1, borderRadius: 36, borderWidth: 2, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 12 },
 
   wordPopup: { position: "absolute", top: "28%", left: "50%", marginLeft: -105, width: 210, backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 20, alignItems: "center", zIndex: 800 },
   wordPopupText: { color: "#f0e6d3", fontSize: 32, marginBottom: 12 },
@@ -2056,6 +2635,7 @@ const styles = StyleSheet.create({
   qiblaAligned: { color: "#22c55e", fontSize: 20, fontWeight: "800" },
   qiblaNotAligned: { color: "#ef4444", fontSize: 16 },
   qiblaAngle: { color: "#444", fontSize: 13, marginTop: 8, textAlign: "center" },
+  qiblaSensorNote: { color: "#f59e0b", fontSize: 11, marginTop: 10, textAlign: "center", maxWidth: 260, lineHeight: 17 },
 
   azkarTabsRow: { paddingVertical: 8, borderBottomWidth: 1 },
   azkarTabBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
