@@ -1841,7 +1841,7 @@ function SettingsScreen({
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   appRoot: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center" },
-  screensWrap: { flex: 1 },
+  screensWrap: { flex: 1, paddingBottom: 56 },
 
   splashWrap: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
   splashGlow: { position: "absolute", width: 320, height: 320, borderRadius: 160, backgroundColor: "#22c55e1a", top: "28%" },
@@ -1857,7 +1857,7 @@ const styles = StyleSheet.create({
   adEmoji: { fontSize: 56, marginBottom: 14 },
   adTitle: { color: "#fff", fontSize: 26, fontWeight: "800" },
   adSub: { color: "#666", fontSize: 14, marginTop: 8, textAlign: "center", maxWidth: 260 },
-  adSkip: { position: "absolute", top: 16, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 16, paddingVertical: 6 },
+  adSkip: { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
   adSkipText: { color: "#ccc", fontSize: 13 },
 
   mamaWrap: { position: "absolute", bottom: 62, left: 0, right: 0, alignItems: "center", zIndex: 50 },
@@ -2125,9 +2125,9 @@ const styles = StyleSheet.create({
   salahIntBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
   salahIntBtnText: { fontSize: 12 },
 
-  bottomAd: { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 56, left: 0, right: 0, zIndex: 90 },
+  bottomAd: { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 70, left: 0, right: 0, zIndex: 90 },
   bottomAdText: { color: "#333", fontSize: 11 },
-  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#050505", borderTopWidth: 1, zIndex: 100, paddingTop: 3, paddingBottom: 6 },
+  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#050505", borderTopWidth: 1, zIndex: 100, paddingTop: 3, paddingBottom: 20 },
   bottomNavContent: { paddingHorizontal: 4 },
   navTabBtn: { minWidth: 52, alignItems: "center", paddingHorizontal: 6, paddingVertical: 3 },
   navTabIcon: { fontSize: 17 },
