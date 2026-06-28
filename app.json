@@ -22,16 +22,12 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true,
-      "permissions": [
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
-      ]
+      }
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "description": "تطبيق مُصلِّي الإسلامي"
+    "extra": {
+      "eas": {
+        "projectId": "46f5eae6-a789-4b28-82de-ece2420366e6"
+      }
+    }
   }
 }
