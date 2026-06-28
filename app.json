@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./splash-icon.png",
       "resizeMode": "contain",
@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.nbare.moslee"
+      "bundleIdentifier": "com.nbare.moslee",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "يستخدم التطبيق موقعك لتحديد اتجاه القبلة وأوقات الصلاة"
+      }
     },
     "android": {
       "package": "com.nbare.moslee",
@@ -22,7 +25,11 @@
       "adaptiveIcon": {
         "foregroundImage": "./adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "extra": {
       "eas": {
