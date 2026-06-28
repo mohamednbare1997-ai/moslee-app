@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { BackHandler } from "react-native";
 import {
   View,
   Text,
@@ -729,6 +730,19 @@ export default function App() {
     };
   }, []);
 
+
+  // ── EFFECT: Hardware back button → go home ────────────────────────────────
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (activeTab !== "home") {
+        setActiveTab("home");
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [activeTab]);
+
   const sendNotif = (msg) => {
     setNotifMsg(msg);
     setTimeout(() => setNotifMsg(""), 3500);
@@ -905,10 +919,12 @@ export default function App() {
       {floatW && (
         <TouchableOpacity
           onPress={handleTasbeeh}
-          style={[styles.floatWidget, { backgroundColor: T.cardBg, borderColor: T.accent }]}
+          style={[styles.floatWidget, { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent }]}
+          activeOpacity={0.85}
         >
-          <Text style={styles.floatWidgetLabel}>تسبيح</Text>
+          <Text style={styles.floatWidgetEmoji}>📿</Text>
           <Text style={[styles.floatWidgetCount, { color: T.accent }]}>{tasbeehCount}</Text>
+          <Text style={[styles.floatWidgetLabel, { color: T.accent }]}>تسبيح</Text>
         </TouchableOpacity>
       )}
 
@@ -1463,8 +1479,7 @@ function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloa
         </View>
       </View>
       <Card T={T} title="خيارات متقدمة">
-        <Toggle T={T} label="🫧 ويدجت عائم" sub="نافذة تسبيح تظهر فوق التطبيقات" value={floatW} onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ الويدجت العائم مفعّل" : "⏹ الويدجت موقوف"); }} />
-        <Toggle T={T} label="🔔 إشعار شاشة القفل" sub="عداد تسبيح سريع في الإشعارات" value={notifW} onChange={(v) => { setNotifW(v); sendNotif(v ? "✅ إشعار التسبيح مفعّل" : "⏹ الإشعار موقوف"); }} />
+        <Toggle T={T} label="🫧 فقاعة التسبيح" sub="تظهر فوق جميع التطبيقات وعلى الشاشة الرئيسية" value={floatW} onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }} />
       </Card>
     </ScrollView>
   );
@@ -1515,12 +1530,12 @@ function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, use
 // ─── AZKAR SCREEN ─────────────────────────────────────────────────────────────
 function AzkarScreen({ T, azkarTab, setAzkarTab, morningC, setMorningC, eveningC, setEveningC, sleepC, setSleepC, travelC, setTravelC, homeC, setHomeC, sunnahC, setSunnahC, decrement }) {
   const TABS = [
-    { id: "morning", label: "🌅 الصباح" },
-    { id: "evening", label: "🌇 المساء" },
-    { id: "sleep", label: "🌙 النوم" },
-    { id: "home", label: "🏠 المنزل" },
-    { id: "travel", label: "✈️ السفر" },
-    { id: "sunnah", label: "✨ السنن" },
+    { id: "morning", label: "الصباح", icon: "🌅" },
+    { id: "evening", label: "المساء", icon: "🌇" },
+    { id: "sleep", label: "النوم", icon: "🌙" },
+    { id: "home", label: "المنزل", icon: "🏠" },
+    { id: "travel", label: "السفر", icon: "✈️" },
+    { id: "sunnah", label: "السنن", icon: "✨" },
   ];
   const dataMap = {
     morning: [MORNING_AZKAR, morningC, setMorningC],
@@ -1534,13 +1549,17 @@ function AzkarScreen({ T, azkarTab, setAzkarTab, morningC, setMorningC, eveningC
   return (
     <View style={{ flex: 1 }}>
       <SH title="🤲 الأذكار والسنن" T={T} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.azkarTabsRow, { borderBottomColor: T.cardBorder }]} contentContainerStyle={{ gap: 6, paddingHorizontal: 12 }}>
-        {TABS.map((tab) => (
-          <TouchableOpacity key={tab.id} onPress={() => setAzkarTab(tab.id)} style={[styles.azkarTabBtn, { backgroundColor: azkarTab === tab.id ? T.accentSoft : "transparent", borderColor: azkarTab === tab.id ? T.accent : "#222" }]}>
-            <Text style={[styles.azkarTabText, { color: azkarTab === tab.id ? T.accent : "#555" }]}>{tab.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={[styles.azkarGridRow, { borderBottomColor: T.cardBorder }]}>
+        {TABS.map((tab) => {
+          const isActive = azkarTab === tab.id;
+          return (
+            <TouchableOpacity key={tab.id} onPress={() => setAzkarTab(tab.id)} style={[styles.azkarGridBtn, { backgroundColor: isActive ? T.accentSoft : "#0a0a0a", borderColor: isActive ? T.accent : "#1a1a1a" }]}>
+              <Text style={{ fontSize: 18 }}>{tab.icon}</Text>
+              <Text style={[styles.azkarGridText, { color: isActive ? T.accent : "#555", fontWeight: isActive ? "700" : "400" }]}>{tab.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
       <ScrollView style={styles.azkarListWrap}>
         {data.map((item, idx) =>
           counts[idx] > 0 ? (
@@ -1666,16 +1685,19 @@ function StatsScreen({ T }) {
       </Card>
       <Card T={T} title="🏆 الإنجازات">
         {[
-          { icon: "🌟", label: "حافظ الفاتحة", done: true },
-          { icon: "📿", label: "100 تسبيحة في يوم", done: true },
-          { icon: "🔥", label: "7 أيام متتالية", done: true },
-          { icon: "📖", label: "ختمة كاملة", done: false },
-          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false },
+          { icon: "🌟", label: "حافظ الفاتحة", done: true, desc: "قرأت سورة الفاتحة كاملة" },
+          { icon: "📿", label: "100 تسبيحة في يوم", done: true, desc: "سبّحت 100 مرة في يوم واحد" },
+          { icon: "🔥", label: "7 أيام متتالية", done: true, desc: "استخدمت التطبيق 7 أيام متتالية" },
+          { icon: "📖", label: "ختمة كاملة", done: false, desc: "اقرأ القرآن كاملاً" },
+          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false, desc: "أكمل أذكار النوم 30 يوماً" },
         ].map((a, i) => (
-          <View key={i} style={styles.achievementRow}>
-            <Text style={styles.achievementIcon}>{a.icon}</Text>
-            <Text style={[styles.achievementLabel, { color: a.done ? "#e2e8f0" : "#444" }]}>{a.label}</Text>
-            <Text style={styles.achievementCheck}>{a.done ? "✅" : "🔒"}</Text>
+          <View key={i} style={[styles.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }]}>
+            <Text style={[styles.achievementIcon, { fontSize: 26 }]}>{a.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.achievementLabel, { color: a.done ? "#e2e8f0" : "#444", fontWeight: "700" }]}>{a.label}</Text>
+              <Text style={{ color: a.done ? "#22c55e88" : "#333", fontSize: 11, marginTop: 2 }}>{a.desc}</Text>
+            </View>
+            <Text style={[styles.achievementCheck, { fontSize: 22 }]}>{a.done ? "✅" : "🔒"}</Text>
           </View>
         ))}
       </Card>
@@ -1870,9 +1892,10 @@ const styles = StyleSheet.create({
   toast: { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
   toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
 
-  floatWidget: { position: "absolute", top: 80, right: 14, width: 58, height: 58, borderRadius: 29, borderWidth: 2, zIndex: 500, alignItems: "center", justifyContent: "center" },
-  floatWidgetLabel: { fontSize: 10, color: "#666" },
-  floatWidgetCount: { fontSize: 20, fontWeight: "700" },
+  floatWidget: { position: "absolute", top: 120, right: 14, width: 76, height: 76, borderRadius: 38, borderWidth: 2, zIndex: 500, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 10 },
+  floatWidgetLabel: { fontSize: 10, marginTop: 1 },
+  floatWidgetEmoji: { fontSize: 22 },
+  floatWidgetCount: { fontSize: 18, fontWeight: "900" },
 
   wordPopup: { position: "absolute", top: "28%", left: "50%", marginLeft: -105, width: 210, backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 20, alignItems: "center", zIndex: 800 },
   wordPopupText: { color: "#f0e6d3", fontSize: 32, marginBottom: 12 },
@@ -2037,6 +2060,9 @@ const styles = StyleSheet.create({
   azkarTabsRow: { paddingVertical: 8, borderBottomWidth: 1 },
   azkarTabBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
   azkarTabText: { fontSize: 12 },
+  azkarGridRow: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
+  azkarGridBtn: { width: "30%", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 10, gap: 4 },
+  azkarGridText: { fontSize: 11 },
   azkarListWrap: { flex: 1, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 80 },
   azkarCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   azkarCardDone: { opacity: 0.35 },
