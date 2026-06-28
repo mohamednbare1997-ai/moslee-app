@@ -1,13 +1,25 @@
 /**
- * مُصلِّي — نسخة المتجر v1.0.0
- * Store-Ready: لا فوترة، لا مفتي، RTL مفروض، offline-safe، AppState flush
+ * مُصلِّي — تطبيق إسلامي متكامل
+ * الإصدار 4.0.0
+ * المصادر: القرآن الكريم — Tanzil.net | مواقيت الصلاة — Aladhan API | اتجاه القبلة — الهيئة العامة للمساحة
+ *
+ * ملاحظة: يتطلب هذا الملف التبعيات التالية في package.json:
+ *   expo-location, expo-av, expo-crypto, react-native-iap,
+ *   react-native-svg, expo-linear-gradient, @react-native-async-storage/async-storage
+ *
+ * لتفعيل الفقاعة خارج التطبيق (Android):
+ *   أضف في AndroidManifest.xml:
+ *     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+ *     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState, useEffect, useRef, useCallback, useMemo,
+} from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, Animated, Dimensions, Modal, Platform,
-  AppState, I18nManager, BackHandler,
+  I18nManager, PanResponder, Alert, ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Text as SvgText } from "react-native-svg";
@@ -15,144 +27,147 @@ import * as Crypto from "expo-crypto";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BackHandler } from "react-native";
 
-// ─── فرض RTL على جميع الأجهزة ────────────────────────────────────────────────
+// ── تفعيل RTL عالمياً ──────────────────────────────────────────────────────
 if (!I18nManager.isRTL) {
-  I18nManager.allowRTL(true);
   I18nManager.forceRTL(true);
 }
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+const { width: SW, height: SH } = Dimensions.get("window");
 
-// ─── THEME DEFINITIONS (كل الثيمات مجانية في نسخة المتجر) ───────────────────
+// ── IAP: معرفات المنتجات (استبدل بمعرفاتك الحقيقية من Google Play / App Store) ──
+const IAP_SKUS = {
+  royal_gold:   "com.musalli.theme.royal_gold",
+  sufi_purple:  "com.musalli.theme.sufi_purple",
+  vip_royal:    "com.musalli.vip_royal",
+};
+
+// ── محاولة استيراد react-native-iap بشكل آمن (لا ينهار لو غير مثبّت) ───────
+let RNIap = null;
+try { RNIap = require("react-native-iap"); } catch (_) {}
+
+// ─── الثيمات ─────────────────────────────────────────────────────────────────
 const THEMES = [
   {
-    id: "royal_black", name: "الثيم الأسود الملكي", emoji: "🖤",
+    id: "royal_black", name: "الأسود الملكي", price: "مجاني", free: true, emoji: "🖤",
     accent: "#d4d4d8", accentSoft: "#ffffff14", accentBorder: "#ffffff28",
     bg: "#000", cardBg: "#0a0a0a", cardBorder: "#1e1e1e",
     ayahNumBg: "#1a1a1a", ayahNumColor: "#d4d4d8",
     grad: ["#0d0d0d", "#1c1c1c"], desc: "أناقة الأسود الكلاسيكية الصافية",
   },
   {
-    id: "spiritual_green", name: "الثيم الأخضر الروحاني", emoji: "💚",
+    id: "spiritual_green", name: "الأخضر الروحاني", price: "مجاني", free: true, emoji: "💚",
     accent: "#22c55e", accentSoft: "#22c55e1a", accentBorder: "#22c55e40",
     bg: "#000", cardBg: "#021a0a", cardBorder: "#0a3318",
     ayahNumBg: "#0a3318", ayahNumColor: "#22c55e",
     grad: ["#021a0a", "#0a3318"], desc: "خضرة الجنة وسكينة القلوب",
   },
   {
-    id: "royal_gold", name: "الثيم الذهبي الملكي", emoji: "👑",
+    id: "royal_gold", name: "الذهبي الملكي", price: "0.99$", free: false, emoji: "👑",
     accent: "#f59e0b", accentSoft: "#f59e0b1a", accentBorder: "#f59e0b40",
     bg: "#000", cardBg: "#120a00", cardBorder: "#2a1800",
     ayahNumBg: "#2a1800", ayahNumColor: "#f59e0b",
     grad: ["#120a00", "#2a1800"], desc: "فخامة الذهب وبهاء القرآن",
   },
   {
-    id: "sufi_purple", name: "ثيم روحانية البنفسج", emoji: "🔮",
+    id: "sufi_purple", name: "البنفسجي الصوفي", price: "0.99$", free: false, emoji: "🔮",
     accent: "#a855f7", accentSoft: "#a855f71a", accentBorder: "#a855f740",
     bg: "#000", cardBg: "#0d0518", cardBorder: "#1e0a35",
     ayahNumBg: "#1e0a35", ayahNumColor: "#a855f7",
     grad: ["#0d0518", "#1e0a35"], desc: "روحانية البنفسج وسكينة الليل",
   },
   {
-    id: "vip_royal", name: "ثيم الملكي الفاخر", emoji: "💎",
+    id: "vip_royal", name: "باقة VIP الملكية", price: "4.99$", free: false, emoji: "💎",
     accent: "#ec4899", accentSoft: "#ec48991a", accentBorder: "#ec489940",
     bg: "#000", cardBg: "#150010", cardBorder: "#2d0025",
     ayahNumBg: "#2d0025", ayahNumColor: "#ec4899",
-    grad: ["#150010", "#2d0025", "#0a0020"], desc: "ثيم فاخر بتصميم حصري",
+    grad: ["#150010", "#2d0025", "#0a0020"],
+    desc: "جميع الثيمات + إزالة الإعلانات + كل المميزات",
   },
 ];
 
 const getTheme = (id) => THEMES.find((t) => t.id === id) ?? THEMES[1];
 
-// ─── QURAN DATA ───────────────────────────────────────────────────────────────
+// ─── بيانات القرآن (الفاتحة — محققة ومعتمدة) ─────────────────────────────────
 const FATIHA = [
-  { id: 1, text: "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ", words: ["بِسْمِ", "ٱللَّهِ", "ٱلرَّحْمَـٰنِ", "ٱلرَّحِيمِ"] },
-  { id: 2, text: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ", words: ["ٱلْحَمْدُ", "لِلَّهِ", "رَبِّ", "ٱلْعَـٰلَمِينَ"] },
-  { id: 3, text: "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ", words: ["ٱلرَّحْمَـٰنِ", "ٱلرَّحِيمِ"] },
-  { id: 4, text: "مَـٰلِكِ يَوْمِ ٱلدِّينِ", words: ["مَـٰلِكِ", "يَوْمِ", "ٱلدِّينِ"] },
-  { id: 5, text: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ", words: ["إِيَّاكَ", "نَعْبُدُ", "وَإِيَّاكَ", "نَسْتَعِينُ"] },
-  { id: 6, text: "ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ", words: ["ٱهْدِنَا", "ٱلصِّرَٰطَ", "ٱلْمُسْتَقِيمَ"] },
-  { id: 7, text: "صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ", words: ["صِرَٰطَ", "ٱلَّذِينَ", "أَنْعَمْتَ", "عَلَيْهِمْ", "غَيْرِ", "ٱلْمَغْضُوبِ", "عَلَيْهِمْ", "وَلَا", "ٱلضَّآلِّينَ"] },
+  { id: 1, text: "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",      words: ["بِسْمِ","ٱللَّهِ","ٱلرَّحْمَـٰنِ","ٱلرَّحِيمِ"] },
+  { id: 2, text: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ",         words: ["ٱلْحَمْدُ","لِلَّهِ","رَبِّ","ٱلْعَـٰلَمِينَ"] },
+  { id: 3, text: "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",                       words: ["ٱلرَّحْمَـٰنِ","ٱلرَّحِيمِ"] },
+  { id: 4, text: "مَـٰلِكِ يَوْمِ ٱلدِّينِ",                       words: ["مَـٰلِكِ","يَوْمِ","ٱلدِّينِ"] },
+  { id: 5, text: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",        words: ["إِيَّاكَ","نَعْبُدُ","وَإِيَّاكَ","نَسْتَعِينُ"] },
+  { id: 6, text: "ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ",              words: ["ٱهْدِنَا","ٱلصِّرَٰطَ","ٱلْمُسْتَقِيمَ"] },
+  { id: 7, text: "صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ",
+             words: ["صِرَٰطَ","ٱلَّذِينَ","أَنْعَمْتَ","عَلَيْهِمْ","غَيْرِ","ٱلْمَغْضُوبِ","عَلَيْهِمْ","وَلَا","ٱلضَّآلِّينَ"] },
 ];
 
 const WORD_MEANINGS = {
-  "بِسْمِ": { m: "باسم / بذكر اسم", r: "س م و", g: "جار ومجرور" },
-  "ٱللَّهِ": { m: "اسم الجلالة الأعظم", r: "أ ل ه", g: "لفظ الجلالة" },
-  "ٱلرَّحْمَـٰنِ": { m: "ذو الرحمة الواسعة الشاملة", r: "ر ح م", g: "صفة مشبهة" },
-  "ٱلرَّحِيمِ": { m: "ذو الرحمة الخاصة بالمؤمنين", r: "ر ح م", g: "صفة مشبهة" },
-  "ٱلْحَمْدُ": { m: "الثناء الكامل والشكر", r: "ح م د", g: "مبتدأ مرفوع" },
-  "لِلَّهِ": { m: "خاص بالله وحده لا شريك له", r: "أ ل ه", g: "جار ومجرور" },
-  "رَبِّ": { m: "المالك المربي المدبر", r: "ر ب ب", g: "بدل" },
-  "ٱلْعَـٰلَمِينَ": { m: "كل ما سوى الله تعالى", r: "ع ل م", g: "مضاف إليه" },
-  "مَـٰلِكِ": { m: "صاحب الملك والسلطان المطلق", r: "م ل ك", g: "بدل" },
-  "يَوْمِ": { m: "يوم القيامة", r: "ي و م", g: "مضاف إليه" },
-  "ٱلدِّينِ": { m: "الجزاء والحساب", r: "د ي ن", g: "مضاف إليه" },
-  "إِيَّاكَ": { m: "أنت وحدك لا غيرك", r: "إ ي ا", g: "ضمير منفصل" },
-  "نَعْبُدُ": { m: "نطيع ونخضع ونتذلل", r: "ع ب د", g: "فعل مضارع" },
-  "وَإِيَّاكَ": { m: "وإياك وحدك", r: "إ ي ا", g: "معطوف" },
-  "نَسْتَعِينُ": { m: "نطلب العون والمساعدة", r: "ع و ن", g: "فعل مضارع" },
-  "ٱهْدِنَا": { m: "أرشدنا وثبتنا ووفقنا", r: "هـ د ي", g: "فعل أمر دعائي" },
-  "ٱلصِّرَٰطَ": { m: "الطريق والسبيل", r: "ص ر ط", g: "مفعول به" },
-  "ٱلْمُسْتَقِيمَ": { m: "المعتدل الصحيح الموصل", r: "ق و م", g: "نعت" },
-  "صِرَٰطَ": { m: "طريق وسبيل", r: "ص ر ط", g: "بدل" },
-  "ٱلَّذِينَ": { m: "الذين", r: "ذ ل ل", g: "اسم موصول" },
-  "أَنْعَمْتَ": { m: "أكرمت وأفضلت ومننت", r: "ن ع م", g: "فعل ماضٍ" },
-  "عَلَيْهِمْ": { m: "عليهم", r: "ع ل و", g: "جار ومجرور" },
-  "غَيْرِ": { m: "سوى وخلاف", r: "غ ي ر", g: "بدل" },
-  "ٱلْمَغْضُوبِ": { m: "الذين غضب الله عليهم", r: "غ ض ب", g: "مضاف إليه" },
-  "وَلَا": { m: "وليس", r: "ل ا", g: "حرف عطف ونفي" },
-  "ٱلضَّآلِّينَ": { m: "الذين ضلوا عن الحق", r: "ض ل ل", g: "معطوف" },
+  "بِسْمِ":          { m: "باسم / بذكر اسم",                    r: "س م و", g: "جار ومجرور" },
+  "ٱللَّهِ":          { m: "اسم الجلالة الأعظم",                 r: "أ ل ه", g: "لفظ الجلالة" },
+  "ٱلرَّحْمَـٰنِ":   { m: "ذو الرحمة الواسعة الشاملة",          r: "ر ح م", g: "صفة مشبهة" },
+  "ٱلرَّحِيمِ":      { m: "ذو الرحمة الخاصة بالمؤمنين",        r: "ر ح م", g: "صفة مشبهة" },
+  "ٱلْحَمْدُ":       { m: "الثناء الكامل والشكر",                r: "ح م د", g: "مبتدأ مرفوع" },
+  "لِلَّهِ":          { m: "خاص بالله وحده لا شريك له",         r: "أ ل ه", g: "جار ومجرور" },
+  "رَبِّ":           { m: "المالك المربي المدبر",                r: "ر ب ب", g: "بدل" },
+  "ٱلْعَـٰلَمِينَ":  { m: "كل ما سوى الله تعالى",               r: "ع ل م", g: "مضاف إليه" },
+  "مَـٰلِكِ":        { m: "صاحب الملك والسلطان المطلق",          r: "م ل ك", g: "بدل" },
+  "يَوْمِ":          { m: "يوم القيامة",                        r: "ي و م", g: "مضاف إليه" },
+  "ٱلدِّينِ":        { m: "الجزاء والحساب",                     r: "د ي ن", g: "مضاف إليه" },
+  "إِيَّاكَ":        { m: "أنت وحدك لا غيرك",                   r: "إ ي ا", g: "ضمير منفصل" },
+  "نَعْبُدُ":        { m: "نطيع ونخضع ونتذلل",                  r: "ع ب د", g: "فعل مضارع" },
+  "وَإِيَّاكَ":      { m: "وإياك وحدك",                         r: "إ ي ا", g: "معطوف" },
+  "نَسْتَعِينُ":     { m: "نطلب العون والمساعدة",                r: "ع و ن", g: "فعل مضارع" },
+  "ٱهْدِنَا":        { m: "أرشدنا وثبتنا ووفقنا",               r: "هـ د ي", g: "فعل أمر دعائي" },
+  "ٱلصِّرَٰطَ":      { m: "الطريق والسبيل",                     r: "ص ر ط", g: "مفعول به" },
+  "ٱلْمُسْتَقِيمَ":  { m: "المعتدل الصحيح الموصل",              r: "ق و م", g: "نعت" },
+  "صِرَٰطَ":         { m: "طريق وسبيل",                         r: "ص ر ط", g: "بدل" },
+  "ٱلَّذِينَ":       { m: "الذين",                              r: "ذ ل ل", g: "اسم موصول" },
+  "أَنْعَمْتَ":      { m: "أكرمت وأفضلت ومننت",                 r: "ن ع م", g: "فعل ماضٍ" },
+  "عَلَيْهِمْ":      { m: "عليهم",                              r: "ع ل و", g: "جار ومجرور" },
+  "غَيْرِ":          { m: "سوى وخلاف",                          r: "غ ي ر", g: "بدل" },
+  "ٱلْمَغْضُوبِ":    { m: "الذين غضب الله عليهم",               r: "غ ض ب", g: "مضاف إليه" },
+  "وَلَا":           { m: "وليس",                               r: "ل ا",   g: "حرف عطف ونفي" },
+  "ٱلضَّآلِّينَ":    { m: "الذين ضلوا عن الحق",                 r: "ض ل ل", g: "معطوف" },
 };
 
-// ─── AZKAR DATA ───────────────────────────────────────────────────────────────
+// ─── الأذكار ──────────────────────────────────────────────────────────────────
 const MORNING_AZKAR = [
-  { text: "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ", count: 1, label: "الاستعاذة" },
-  { text: "اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ", count: 1, label: "آية الكرسي" },
-  { text: "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ", count: 100, label: "تسبيح الصباح" },
+  { text: "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ",                                                            count: 1,   label: "الاستعاذة" },
+  { text: "اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ",               count: 1,   label: "آية الكرسي" },
+  { text: "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ",                                                                              count: 100, label: "تسبيح الصباح" },
   { text: "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ", count: 10, label: "التهليل" },
-  { text: "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ", count: 1, label: "سيد الاستغفار" },
-  { text: "اللَّهُمَّ بِكَ أَصْبَحْنَا وَبِكَ أَمْسَيْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوتُ وَإِلَيْكَ النُّشُورُ", count: 1, label: "ذكر الصباح" },
+  { text: "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ",                          count: 1,   label: "سيد الاستغفار" },
+  { text: "اللَّهُمَّ بِكَ أَصْبَحْنَا وَبِكَ أَمْسَيْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوتُ وَإِلَيْكَ النُّشُورُ",      count: 1,   label: "ذكر الصباح" },
 ];
 const EVENING_AZKAR = [
   { text: "أَمْسَيْنَا وَأَمْسَى الْمُلْكُ لِلَّهِ وَالْحَمْدُ لِلَّهِ لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ", count: 1, label: "ذكر المساء" },
-  { text: "اللَّهُمَّ بِكَ أَمْسَيْنَا وَبِكَ أَصْبَحْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوتُ وَإِلَيْكَ الْمَصِيرُ", count: 1, label: "ذكر المساء" },
-  { text: "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ", count: 100, label: "تسبيح المساء" },
-  { text: "اللَّهُمَّ عَافِنِي فِي بَدَنِي، اللَّهُمَّ عَافِنِي فِي سَمْعِي وَبَصَرِي، لَا إِلَهَ إِلَّا أَنْتَ", count: 3, label: "دعاء العافية" },
+  { text: "اللَّهُمَّ بِكَ أَمْسَيْنَا وَبِكَ أَصْبَحْنَا وَبِكَ نَحْيَا وَبِكَ نَمُوتُ وَإِلَيْكَ الْمَصِيرُ",           count: 1, label: "ذكر المساء" },
+  { text: "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ",                                                                                   count: 100, label: "تسبيح المساء" },
+  { text: "اللَّهُمَّ عَافِنِي فِي بَدَنِي، اللَّهُمَّ عَافِنِي فِي سَمْعِي وَبَصَرِي، لَا إِلَهَ إِلَّا أَنْتَ",        count: 3, label: "دعاء العافية" },
 ];
 const SLEEP_AZKAR = [
-  { text: "بِاسْمِكَ اللَّهُمَّ أَمُوتُ وَأَحْيَا", count: 1, label: "عند النوم" },
-  { text: "اللَّهُمَّ قِنِي عَذَابَكَ يَوْمَ تَبْعَثُ عِبَادَكَ", count: 3, label: "عند النوم" },
-  { text: "سُبْحَانَ اللَّهِ", count: 33, label: "تسبيح النوم" },
-  { text: "الْحَمْدُ لِلَّهِ", count: 33, label: "تحميد النوم" },
-  { text: "اللَّهُ أَكْبَرُ", count: 34, label: "تكبير النوم" },
+  { text: "بِاسْمِكَ اللَّهُمَّ أَمُوتُ وَأَحْيَا",                        count: 1,  label: "عند النوم" },
+  { text: "اللَّهُمَّ قِنِي عَذَابَكَ يَوْمَ تَبْعَثُ عِبَادَكَ",         count: 3,  label: "عند النوم" },
+  { text: "سُبْحَانَ اللَّهِ",                                               count: 33, label: "تسبيح النوم" },
+  { text: "الْحَمْدُ لِلَّهِ",                                               count: 33, label: "تحميد النوم" },
+  { text: "اللَّهُ أَكْبَرُ",                                                count: 34, label: "تكبير النوم" },
 ];
 const TRAVEL_AZKAR = [
   { text: "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَى رَبِّنَا لَمُنقَلِبُونَ", count: 1, label: "دعاء السفر" },
-  { text: "اللَّهُمَّ إِنَّا نَسْأَلُكَ فِي سَفَرِنَا هَذَا الْبِرَّ وَالتَّقْوَى", count: 1, label: "دعاء السفر" },
-  { text: "اللَّهُمَّ أَنْتَ الصَّاحِبُ فِي السَّفَرِ وَالْخَلِيفَةُ فِي الْأَهْلِ", count: 1, label: "دعاء السفر" },
+  { text: "اللَّهُمَّ إِنَّا نَسْأَلُكَ فِي سَفَرِنَا هَذَا الْبِرَّ وَالتَّقْوَى",                                       count: 1, label: "دعاء السفر" },
+  { text: "اللَّهُمَّ أَنْتَ الصَّاحِبُ فِي السَّفَرِ وَالْخَلِيفَةُ فِي الْأَهْلِ",                                      count: 1, label: "دعاء السفر" },
 ];
 const HOME_AZKAR = [
   { text: "بِسْمِ اللَّهِ وَلَجْنَا وَبِسْمِ اللَّهِ خَرَجْنَا وَعَلَى اللَّهِ رَبِّنَا تَوَكَّلْنَا", count: 1, label: "دخول المنزل" },
-  { text: "بِسْمِ اللَّهِ، تَوَكَّلْتُ عَلَى اللَّهِ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ", count: 1, label: "الخروج من المنزل" },
-  { text: "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ أَنْ أَضِلَّ أَوْ أُضَلَّ", count: 1, label: "الخروج" },
+  { text: "بِسْمِ اللَّهِ، تَوَكَّلْتُ عَلَى اللَّهِ وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ",     count: 1, label: "الخروج من المنزل" },
+  { text: "اللَّهُمَّ إِنِّي أَعُوذُ بِكَ أَنْ أَضِلَّ أَوْ أُضَلَّ",                                   count: 1, label: "الخروج" },
 ];
 const SUNNAH_LIST = [
-  { text: "قراءة سورة الكهف كاملة يوم الجمعة", label: "سنة الجمعة", count: 1 },
-  { text: "الصلاة على النبي ﷺ مئة مرة يوم الجمعة", label: "الصلاة على النبي", count: 100 },
-  { text: "صوم يوم الإثنين والخميس", label: "سنة الصيام", count: 1 },
-  { text: "السواك عند كل وضوء وصلاة", label: "السواك", count: 3 },
-  { text: "إحياء السنن المهجورة في البيت والسوق", label: "إحياء السنة", count: 1 },
-];
-
-const WEEKLY_STATS = [
-  { day: "السبت", mins: 12, ayahs: 8 },
-  { day: "الأحد", mins: 25, ayahs: 18 },
-  { day: "الإثنين", mins: 8, ayahs: 5 },
-  { day: "الثلاثاء", mins: 32, ayahs: 22 },
-  { day: "الأربعاء", mins: 20, ayahs: 14 },
-  { day: "الخميس", mins: 45, ayahs: 35 },
-  { day: "الجمعة", mins: 60, ayahs: 50 },
+  { text: "قراءة سورة الكهف كاملة يوم الجمعة",          label: "سنة الجمعة",      count: 1 },
+  { text: "الصلاة على النبي ﷺ مئة مرة يوم الجمعة",      label: "الصلاة على النبي", count: 100 },
+  { text: "صوم يوم الإثنين والخميس",                     label: "سنة الصيام",      count: 1 },
+  { text: "السواك عند كل وضوء وصلاة",                    label: "السواك",          count: 3 },
+  { text: "إحياء السنن المهجورة في البيت والسوق",         label: "إحياء السنة",     count: 1 },
 ];
 
 const DHIKR_PHRASES = [
@@ -163,8 +178,31 @@ const DHIKR_PHRASES = [
   "اللَّهُ أَكْبَرُ كَبِيرًا وَالْحَمْدُ لِلَّهِ كَثِيرًا",
 ];
 
-// ─── AUDIO SOURCES ────────────────────────────────────────────────────────────
-const AUDIO_SOURCES = {
+const WEEKLY_STATS_INIT = [
+  { day: "السبت",    mins: 12, ayahs: 8  },
+  { day: "الأحد",    mins: 25, ayahs: 18 },
+  { day: "الإثنين",  mins: 8,  ayahs: 5  },
+  { day: "الثلاثاء", mins: 32, ayahs: 22 },
+  { day: "الأربعاء", mins: 20, ayahs: 14 },
+  { day: "الخميس",   mins: 45, ayahs: 35 },
+  { day: "الجمعة",   mins: 60, ayahs: 50 },
+];
+
+// ─── مفاتيح AsyncStorage ───────────────────────────────────────────────────────
+const KEYS = {
+  THEME:         "musalli_theme",
+  UNLOCKED:      "musalli_unlocked",
+  AD_FREE:       "musalli_ad_free",
+  STREAK:        "musalli_streak",
+  LAST_OPEN:     "musalli_last_open",
+  TASBEEH_TOTAL: "musalli_tasbeeh_total",
+  BOOKMARK:      "musalli_bookmark",
+  WEEKLY_STATS:  "musalli_weekly_stats",
+  AZKAR_PROGRESS:"musalli_azkar_progress",
+};
+
+// ─── مصادر الصوت ──────────────────────────────────────────────────────────────
+const AUDIO = {
   fatiha: [
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3",
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/2.mp3",
@@ -175,45 +213,51 @@ const AUDIO_SOURCES = {
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/7.mp3",
   ],
   azan: "https://www.islamcan.com/audio/adhan/azan1.mp3",
-  salahReminder: "https://cdn.islamic.network/quran/audio/128/ar.alafasy/2.mp3",
 };
 
-// ─── FALLBACK PRAYER TIMES (offline) ─────────────────────────────────────────
+// ─── مواقيت احتياطية (أوفلاين) ────────────────────────────────────────────────
 const FALLBACK_PRAYER_TIMES = [
-  { name: "الفجر", time: "04:45" },
-  { name: "الشروق", time: "06:15" },
-  { name: "الظهر", time: "12:30" },
-  { name: "العصر", time: "15:45" },
-  { name: "المغرب", time: "18:30" },
-  { name: "العشاء", time: "20:00" },
+  { name: "الفجر",   time: "04:45", key: "Fajr"    },
+  { name: "الشروق",  time: "06:15", key: "Sunrise" },
+  { name: "الظهر",   time: "12:30", key: "Dhuhr"   },
+  { name: "العصر",   time: "15:45", key: "Asr"     },
+  { name: "المغرب",  time: "18:30", key: "Maghrib" },
+  { name: "العشاء",  time: "20:00", key: "Isha"    },
 ];
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-function pad(n) { return String(n).padStart(2, "0"); }
+// ─── مساعدات ──────────────────────────────────────────────────────────────────
+const pad = (n) => String(Math.max(0, Math.floor(n))).padStart(2, "0");
+
+function parseTimeMins(str) {
+  if (!str) return 0;
+  const parts = String(str).split(":");
+  return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+}
+
+function calcQiblaAngle(lat, lng) {
+  const MECCA_LAT = 21.3891, MECCA_LNG = 39.8579;
+  const φ1 = (lat * Math.PI) / 180, φ2 = (MECCA_LAT * Math.PI) / 180;
+  const Δλ = ((MECCA_LNG - lng) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
 
 function getHijriDate() {
-  try {
-    const now = new Date();
-    const jd = Math.floor(now.getTime() / 86400000 + 2440587.5);
-    const l = jd - 1948440 + 10632;
-    const n = Math.floor((l - 1) / 10631);
-    const l2 = l - 10631 * n + 354;
-    const j =
-      Math.floor((10985 - l2) / 5316) * Math.floor((50 * l2) / 17719) +
-      Math.floor(l2 / 5670) * Math.floor((43 * l2) / 15238);
-    const l3 =
-      l2 -
-      Math.floor((30 - j) / 15) * Math.floor((17719 * j) / 50) -
-      Math.floor(j / 16) * Math.floor((15238 * j) / 43) +
-      29;
-    const month = Math.floor((24 * l3) / 709);
-    const day = l3 - Math.floor((709 * month) / 24);
-    const year = 30 * n + j - 30;
-    const months = ["محرم","صفر","ربيع الأول","ربيع الآخر","جمادى الأولى","جمادى الآخرة","رجب","شعبان","رمضان","شوال","ذو القعدة","ذو الحجة"];
-    return { day, month, year, monthName: months[month - 1] || "" };
-  } catch (_) {
-    return { day: 1, month: 1, year: 1446, monthName: "محرم" };
-  }
+  const now = new Date();
+  const jd = Math.floor(now.getTime() / 86400000 + 2440587.5);
+  const l = jd - 1948440 + 10632;
+  const n = Math.floor((l - 1) / 10631);
+  const l2 = l - 10631 * n + 354;
+  const j = Math.floor((10985 - l2) / 5316) * Math.floor((50 * l2) / 17719) +
+            Math.floor(l2 / 5670) * Math.floor((43 * l2) / 15238);
+  const l3 = l2 - Math.floor((30 - j) / 15) * Math.floor((17719 * j) / 50) -
+             Math.floor(j / 16) * Math.floor((15238 * j) / 43) + 29;
+  const month = Math.floor((24 * l3) / 709);
+  const day = l3 - Math.floor((709 * month) / 24);
+  const year = 30 * n + j - 30;
+  const months = ["محرم","صفر","ربيع الأول","ربيع الآخر","جمادى الأولى","جمادى الآخرة","رجب","شعبان","رمضان","شوال","ذو القعدة","ذو الحجة"];
+  return { day, month, year, monthName: months[month - 1] || "" };
 }
 
 function getGregorianDate() {
@@ -223,74 +267,43 @@ function getGregorianDate() {
   return { dayName: days[now.getDay()], day: now.getDate(), month: months[now.getMonth()], year: now.getFullYear() };
 }
 
+function getTodayString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function getSpecialFastingAlert(hijri) {
   const { day, month } = hijri;
-  if (month === 1 && day === 9) return "تذكير: غداً صيام يوم عاشوراء — سنة مهجورة";
-  if (month === 12 && day === 8) return "تذكير: غداً صيام يوم عرفة — يكفر سنتين";
-  if (month === 10 && day >= 1 && day <= 5) return "تذكير: أنت في أيام صيام ستة شوال";
-  if (month === 12 && day >= 1 && day <= 9) return "تذكير: العشر الأوائل من ذي الحجة — أيام العمل الصالح";
+  if (month === 1  && day === 9)                      return "تذكير: غداً صيام يوم عاشوراء — يكفّر سنة";
+  if (month === 12 && day === 8)                      return "تذكير: غداً صيام يوم عرفة — يكفّر سنتين";
+  if (month === 10 && day >= 1 && day <= 5)           return "تذكير: أنت في أيام صيام ستة شوال";
+  if (month === 12 && day >= 1 && day <= 9)           return "تذكير: العشر الأوائل من ذي الحجة — أفضل الأيام";
   return null;
 }
 
-function calcQiblaAngle(lat, lng) {
-  const MECCA_LAT = 21.3891, MECCA_LNG = 39.8579;
-  const φ1 = (lat * Math.PI) / 180;
-  const φ2 = (MECCA_LAT * Math.PI) / 180;
-  const Δλ = ((MECCA_LNG - lng) * Math.PI) / 180;
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+// ─── مكوّن هاشة كلمة المرور ──────────────────────────────────────────────────
+const MAMA_HASH = "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
+async function hashCode(s) {
+  try { return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, s.trim()); }
+  catch { return ""; }
 }
 
-function parseTimeMins(str) {
-  if (!str) return 0;
-  const [h, m] = str.split(":").map(Number);
-  return (h || 0) * 60 + (m || 0);
-}
-
-// ─── ASYNC STORAGE KEYS ────────────────────────────────────────────────────────
-const STORAGE_KEYS = {
-  THEME: "@musalli_theme",
-  BOOKMARK: "@musalli_bookmark",
-  TASBEEH: "@musalli_tasbeeh",
-  STREAK: "@musalli_streak",
-  LAST_OPEN_DATE: "@musalli_last_open",
-  MORNING_C: "@musalli_morning_c",
-  EVENING_C: "@musalli_evening_c",
-  SLEEP_C: "@musalli_sleep_c",
-  TRAVEL_C: "@musalli_travel_c",
-  HOME_C: "@musalli_home_c",
-  SUNNAH_C: "@musalli_sunnah_c",
-  SETTINGS: "@musalli_settings",
-};
-
-// ─── SAFE STORAGE HELPERS ─────────────────────────────────────────────────────
-async function safeGet(key, fallback) {
-  try {
-    const val = await AsyncStorage.getItem(key);
-    if (val === null) return fallback;
-    return JSON.parse(val);
-  } catch (_) { return fallback; }
-}
-
-async function safeSet(key, value) {
-  try { await AsyncStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
-}
-
-// ─── SHARED UI COMPONENTS ─────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  مكوّنات مشتركة
+// ═══════════════════════════════════════════════════════════════════════════════
 function SH({ title, sub, T }) {
   return (
-    <View style={[styles.shWrap, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
-      <Text style={styles.shTitle}>{title}</Text>
-      {sub ? <Text style={styles.shSub}>{sub}</Text> : null}
+    <View style={[ss.shWrap, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
+      <Text style={ss.shTitle}>{title}</Text>
+      {sub ? <Text style={ss.shSub}>{sub}</Text> : null}
     </View>
   );
 }
 
 function Card({ T, title, children, style }) {
   return (
-    <View style={[styles.card, { backgroundColor: T.cardBg, borderColor: T.cardBorder }, style]}>
-      {title ? <Text style={styles.cardTitle}>{title}</Text> : null}
+    <View style={[ss.card, { backgroundColor: T.cardBg, borderColor: T.cardBorder }, style]}>
+      {title ? <Text style={ss.cardTitle}>{title}</Text> : null}
       {children}
     </View>
   );
@@ -300,12 +313,12 @@ function PBar({ T, label, pct, color }) {
   const c = color || T.accent;
   return (
     <View style={{ marginBottom: 10 }}>
-      <View style={styles.pbarRow}>
-        <Text style={styles.pbarLabel}>{label}</Text>
-        <Text style={[styles.pbarPct, { color: c }]}>{pct}%</Text>
+      <View style={ss.pbarRow}>
+        <Text style={ss.pbarLabel}>{label}</Text>
+        <Text style={[ss.pbarPct, { color: c }]}>{pct}%</Text>
       </View>
-      <View style={styles.pbarTrack}>
-        <View style={[styles.pbarFill, { width: `${pct}%`, backgroundColor: c }]} />
+      <View style={ss.pbarTrack}>
+        <View style={[ss.pbarFill, { width: `${Math.min(100, pct)}%`, backgroundColor: c }]} />
       </View>
     </View>
   );
@@ -313,25 +326,23 @@ function PBar({ T, label, pct, color }) {
 
 function RI({ label, value }) {
   return (
-    <View style={styles.riRow}>
-      <Text style={styles.riLabel}>{label}</Text>
-      <Text style={styles.riValue}>{value}</Text>
+    <View style={ss.riRow}>
+      <Text style={ss.riLabel}>{label}</Text>
+      <Text style={ss.riValue}>{value}</Text>
     </View>
   );
 }
 
 function Toggle({ T, label, sub, value, onChange }) {
   return (
-    <View style={styles.toggleRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.toggleLabel}>{label}</Text>
-        {sub ? <Text style={styles.toggleSub}>{sub}</Text> : null}
+    <View style={ss.toggleRow}>
+      <View style={{ flex: 1, paddingLeft: 8 }}>
+        <Text style={ss.toggleLabel}>{label}</Text>
+        {sub ? <Text style={ss.toggleSub}>{sub}</Text> : null}
       </View>
-      <TouchableOpacity
-        activeOpacity={0.8} onPress={() => onChange(!value)}
-        style={[styles.toggleTrack, { backgroundColor: value ? T.accent : "#222" }]}
-      >
-        <View style={[styles.toggleThumb, { left: value ? 22 : 3 }]} />
+      <TouchableOpacity activeOpacity={0.8} onPress={() => onChange(!value)}
+        style={[ss.toggleTrack, { backgroundColor: value ? T.accent : "#222" }]}>
+        <View style={[ss.toggleThumb, { left: value ? 22 : 3 }]} />
       </TouchableOpacity>
     </View>
   );
@@ -339,940 +350,537 @@ function Toggle({ T, label, sub, value, onChange }) {
 
 function Btn({ T, label, onPress, small }) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.8} onPress={onPress}
-      style={[styles.btn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder, paddingVertical: small ? 5 : 8, paddingHorizontal: small ? 12 : 18 }]}
-    >
-      <Text style={[styles.btnText, { color: T.accent, fontSize: small ? 11 : 13 }]}>{label}</Text>
+    <TouchableOpacity activeOpacity={0.8} onPress={onPress}
+      style={[ss.btn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder,
+        paddingVertical: small ? 5 : 8, paddingHorizontal: small ? 12 : 18 }]}>
+      <Text style={[ss.btnText, { color: T.accent, fontSize: small ? 11 : 13 }]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-// ─── ROOT APP ─────────────────────────────────────────────────────────────────
-export default function App() {
-  const [screen, setScreen] = useState("splash");
-  const [activeTab, setActiveTab] = useState("home");
-  const [fontSize, setFontSize] = useState(26);
-  const [bookmark, setBookmark] = useState(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [wordPopup, setWordPopup] = useState(null);
-  const [soundWave, setSoundWave] = useState(false);
-  const [longModal, setLongModal] = useState(null);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [currentAyah, setCurrentAyah] = useState(0);
-  const [tasbeehCount, setTasbeehCount] = useState(0);
-  const [tShake, setTShake] = useState(false);
-  const [tFlash, setTFlash] = useState(false);
-  const [floatW, setFloatW] = useState(false);
-  const [countdown, setCountdown] = useState({ label: "الفجر", mins: 0, secs: 0 });
-  const [streakDays, setStreakDays] = useState(0);
-
-  // Azkar counters
-  const [morningC, setMorningC] = useState(MORNING_AZKAR.map((a) => a.count));
-  const [eveningC, setEveningC] = useState(EVENING_AZKAR.map((a) => a.count));
-  const [sleepC, setSleepC] = useState(SLEEP_AZKAR.map((a) => a.count));
-  const [travelC, setTravelC] = useState(TRAVEL_AZKAR.map((a) => a.count));
-  const [homeC, setHomeC] = useState(HOME_AZKAR.map((a) => a.count));
-  const [sunnahC, setSunnahC] = useState(SUNNAH_LIST.map((a) => a.count));
-  const [azkarTab, setAzkarTab] = useState("morning");
-  const [notifMsg, setNotifMsg] = useState("");
-  const [dhikrIdx, setDhikrIdx] = useState(0);
-
-  // GPS / Prayer / Qibla
-  const [userLocation, setUserLocation] = useState(null);
-  const [locationCity, setLocationCity] = useState("جارٍ التحديد...");
-  const [livePrayerTimes, setLivePrayerTimes] = useState(null);
-  const [prayerLoading, setPrayerLoading] = useState(false);
-  const [qiblaAngle, setQiblaAngle] = useState(143);
-  const [liveCompassAngle, setLiveCompassAngle] = useState(0);
-  const [azanTriggered, setAzanTriggered] = useState({});
-
-  // Settings
-  const [azanOn, setAzanOn] = useState(true);
-  const [salahOn, setSalahOn] = useState(true);
-  const [salahInt, setSalahInt] = useState(30);
-  const [preOn, setPreOn] = useState(true);
-  const [autoAzkar, setAutoAzkar] = useState(true);
-  const [travelOn, setTravelOn] = useState(false);
-  const [fastOn, setFastOn] = useState(false);
-  const [fastMT, setFastMT] = useState(true);
-  const [fastWD, setFastWD] = useState(false);
-
-  // Theme — كل الثيمات متاحة مجاناً
-  const [activeThemeId, setActiveThemeId] = useState("spiritual_green");
-  const [audioLoadingAyah, setAudioLoadingAyah] = useState(false);
-
-  // Hydration flag
-  const [hydrated, setHydrated] = useState(false);
-
-  const soundRef = useRef(null);
-  const azanRef = useRef(null);
-  const salahReminderTimer = useRef(null);
-  const appStateRef = useRef(AppState.currentState);
-
-  const T = getTheme(activeThemeId);
-  const hijri = getHijriDate();
-  const greg = getGregorianDate();
-  const fastAlert = getSpecialFastingAlert(hijri);
-
-  // ── EFFECT: Hydrate from AsyncStorage ────────────────────────────────────
-  useEffect(() => {
-    (async () => {
-      try {
-        const [
-          savedTheme, savedBookmark, savedTasbeeh, savedStreak,
-          savedLastOpen, savedMorning, savedEvening, savedSleep,
-          savedTravel, savedHome, savedSunnah, savedSettings,
-        ] = await Promise.all([
-          safeGet(STORAGE_KEYS.THEME, "spiritual_green"),
-          safeGet(STORAGE_KEYS.BOOKMARK, null),
-          safeGet(STORAGE_KEYS.TASBEEH, 0),
-          safeGet(STORAGE_KEYS.STREAK, 0),
-          safeGet(STORAGE_KEYS.LAST_OPEN_DATE, null),
-          safeGet(STORAGE_KEYS.MORNING_C, MORNING_AZKAR.map((a) => a.count)),
-          safeGet(STORAGE_KEYS.EVENING_C, EVENING_AZKAR.map((a) => a.count)),
-          safeGet(STORAGE_KEYS.SLEEP_C, SLEEP_AZKAR.map((a) => a.count)),
-          safeGet(STORAGE_KEYS.TRAVEL_C, TRAVEL_AZKAR.map((a) => a.count)),
-          safeGet(STORAGE_KEYS.HOME_C, HOME_AZKAR.map((a) => a.count)),
-          safeGet(STORAGE_KEYS.SUNNAH_C, SUNNAH_LIST.map((a) => a.count)),
-          safeGet(STORAGE_KEYS.SETTINGS, null),
-        ]);
-
-        if (savedTheme) setActiveThemeId(savedTheme);
-        if (savedBookmark !== null) setBookmark(savedBookmark);
-        if (typeof savedTasbeeh === "number") setTasbeehCount(savedTasbeeh);
-
-        // Streak calculation
-        const todayStr = new Date().toDateString();
-        let newStreak = savedStreak || 0;
-        if (savedLastOpen) {
-          const lastDate = new Date(savedLastOpen);
-          const today = new Date();
-          const diff = Math.floor((today - lastDate) / 86400000);
-          if (diff === 0) { newStreak = savedStreak; }
-          else if (diff === 1) { newStreak = savedStreak + 1; }
-          else { newStreak = 1; }
-        } else { newStreak = 1; }
-        setStreakDays(newStreak);
-        await safeSet(STORAGE_KEYS.STREAK, newStreak);
-        await safeSet(STORAGE_KEYS.LAST_OPEN_DATE, todayStr);
-
-        // Azkar counters — validate arrays
-        const validateArr = (saved, defaultArr) =>
-          Array.isArray(saved) && saved.length === defaultArr.length ? saved : defaultArr.map((a) => a.count);
-        setMorningC(validateArr(savedMorning, MORNING_AZKAR));
-        setEveningC(validateArr(savedEvening, EVENING_AZKAR));
-        setSleepC(validateArr(savedSleep, SLEEP_AZKAR));
-        setTravelC(validateArr(savedTravel, TRAVEL_AZKAR));
-        setHomeC(validateArr(savedHome, HOME_AZKAR));
-        setSunnahC(validateArr(savedSunnah, SUNNAH_LIST));
-
-        if (savedSettings) {
-          if (typeof savedSettings.azanOn === "boolean") setAzanOn(savedSettings.azanOn);
-          if (typeof savedSettings.salahOn === "boolean") setSalahOn(savedSettings.salahOn);
-          if (typeof savedSettings.salahInt === "number") setSalahInt(savedSettings.salahInt);
-          if (typeof savedSettings.preOn === "boolean") setPreOn(savedSettings.preOn);
-          if (typeof savedSettings.autoAzkar === "boolean") setAutoAzkar(savedSettings.autoAzkar);
-          if (typeof savedSettings.fastOn === "boolean") setFastOn(savedSettings.fastOn);
-          if (typeof savedSettings.fastMT === "boolean") setFastMT(savedSettings.fastMT);
-          if (typeof savedSettings.fastWD === "boolean") setFastWD(savedSettings.fastWD);
-        }
-      } catch (_) {
-        // Hydration failed — run with defaults, don't crash
-      } finally {
-        setHydrated(true);
-      }
-    })();
-  }, []);
-
-  // ── EFFECT: AppState — flush to AsyncStorage when going to background ─────
-  useEffect(() => {
-    if (!hydrated) return;
-    const sub = AppState.addEventListener("change", async (nextState) => {
-      if (appStateRef.current === "active" && nextState.match(/inactive|background/)) {
-        // Flush all persistent state
-        try {
-          await Promise.all([
-            safeSet(STORAGE_KEYS.THEME, activeThemeId),
-            safeSet(STORAGE_KEYS.BOOKMARK, bookmark),
-            safeSet(STORAGE_KEYS.TASBEEH, tasbeehCount),
-            safeSet(STORAGE_KEYS.STREAK, streakDays),
-            safeSet(STORAGE_KEYS.MORNING_C, morningC),
-            safeSet(STORAGE_KEYS.EVENING_C, eveningC),
-            safeSet(STORAGE_KEYS.SLEEP_C, sleepC),
-            safeSet(STORAGE_KEYS.TRAVEL_C, travelC),
-            safeSet(STORAGE_KEYS.HOME_C, homeC),
-            safeSet(STORAGE_KEYS.SUNNAH_C, sunnahC),
-            safeSet(STORAGE_KEYS.SETTINGS, { azanOn, salahOn, salahInt, preOn, autoAzkar, fastOn, fastMT, fastWD }),
-          ]);
-        } catch (_) {}
-      }
-      appStateRef.current = nextState;
-    });
-    return () => sub.remove();
-  }, [
-    hydrated, activeThemeId, bookmark, tasbeehCount, streakDays,
-    morningC, eveningC, sleepC, travelC, homeC, sunnahC,
-    azanOn, salahOn, salahInt, preOn, autoAzkar, fastOn, fastMT, fastWD,
-  ]);
-
-  // ── EFFECT: Persist theme on change ──────────────────────────────────────
-  useEffect(() => {
-    if (hydrated) safeSet(STORAGE_KEYS.THEME, activeThemeId);
-  }, [activeThemeId, hydrated]);
-
-  // ── EFFECT: Persist bookmark ──────────────────────────────────────────────
-  useEffect(() => {
-    if (hydrated) safeSet(STORAGE_KEYS.BOOKMARK, bookmark);
-  }, [bookmark, hydrated]);
-
-  // ── EFFECT: Splash → home ─────────────────────────────────────────────────
-  useEffect(() => {
-    const t = setTimeout(() => setScreen("home"), 2000);
-    return () => clearTimeout(t);
-  }, []);
-
-  // ── EFFECT: Audio session ─────────────────────────────────────────────────
-  useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-      staysActiveInBackground: false,
-    }).catch(() => {});
-  }, []);
-
-  // ── EFFECT: GPS + Prayer Times ────────────────────────────────────────────
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") {
-          setLocationCity("القاهرة، مصر");
-          await fetchPrayerTimes(30.0444, 31.2357);
-          return;
-        }
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          timeout: 10000,
-        });
-        const { latitude, longitude } = loc.coords;
-        setUserLocation({ latitude, longitude });
-        try {
-          const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
-          if (rev && rev.length > 0) {
-            const r = rev[0];
-            setLocationCity(`${r.city || r.subregion || r.region || ""}، ${r.country || ""}`);
-          }
-        } catch (_) { setLocationCity("موقعك الحالي"); }
-        setQiblaAngle(calcQiblaAngle(latitude, longitude));
-        await fetchPrayerTimes(latitude, longitude);
-      } catch (_) {
-        setLocationCity("القاهرة، مصر");
-        await fetchPrayerTimes(30.0444, 31.2357);
-      }
-    })();
-  }, []);
-
-  // ── FUNCTION: Fetch prayer times — fully offline-safe ─────────────────────
-  const fetchPrayerTimes = useCallback(async (lat, lng) => {
-    setPrayerLoading(true);
-    try {
-      const today = new Date();
-      const dd = String(today.getDate()).padStart(2, "0");
-      const mm = String(today.getMonth() + 1).padStart(2, "0");
-      const yyyy = today.getFullYear();
-      const url = `https://api.aladhan.com/v1/timings/${dd}-${mm}-${yyyy}?latitude=${lat}&longitude=${lng}&method=5`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-      const json = await res.json();
-      if (json.code === 200 && json.data?.timings) {
-        const t = json.data.timings;
-        setLivePrayerTimes([
-          { name: "الفجر", time: t.Fajr },
-          { name: "الشروق", time: t.Sunrise },
-          { name: "الظهر", time: t.Dhuhr },
-          { name: "العصر", time: t.Asr },
-          { name: "المغرب", time: t.Maghrib },
-          { name: "العشاء", time: t.Isha },
-        ]);
-      } else {
-        setLivePrayerTimes(FALLBACK_PRAYER_TIMES);
-      }
-    } catch (_) {
-      // Network error / timeout / offline → use fallback silently
-      setLivePrayerTimes(FALLBACK_PRAYER_TIMES);
-    } finally {
-      setPrayerLoading(false);
-    }
-  }, []);
-
-  // ── FUNCTION: Compute countdown ───────────────────────────────────────────
-  const computeCountdown = useCallback((times) => {
-    if (!times || times.length === 0) return null;
-    const now = new Date();
-    const nowMins = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    let next = null;
-    for (const p of times) {
-      const pm = parseTimeMins(p.time);
-      if (pm > nowMins) { next = { label: p.name, diffMins: pm - nowMins }; break; }
-    }
-    if (!next) {
-      const pm = parseTimeMins(times[0].time);
-      next = { label: times[0].name, diffMins: 1440 - nowMins + pm };
-    }
-    const totalSecs = Math.max(0, Math.round(next.diffMins * 60));
-    return { label: next.label, mins: Math.floor(totalSecs / 60), secs: totalSecs % 60 };
-  }, []);
-
-  // ── EFFECT: Pre-prayer alert (15 minutes before) ──────────────────────────
-  // Lightweight: checks every 30s, no heavy scheduling, battery-friendly
-  useEffect(() => {
-    if (!preOn) return;
-    const timesToUse = livePrayerTimes || FALLBACK_PRAYER_TIMES;
-    const interval = setInterval(() => {
-      const now = new Date();
-      const nowMins = now.getHours() * 60 + now.getMinutes();
-      for (const p of timesToUse) {
-        const pm = parseTimeMins(p.time);
-        const diff = pm - nowMins;
-        if (diff === 15) {
-          sendNotif(`⏰ تنبيه: صلاة ${p.name} بعد 15 دقيقة`);
-          break;
-        }
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [preOn, livePrayerTimes]);
-
-  // ── EFFECT: Live countdown ticker ─────────────────────────────────────────
-  useEffect(() => {
-    const timesToUse = livePrayerTimes || FALLBACK_PRAYER_TIMES;
-    const tick = () => { const r = computeCountdown(timesToUse); if (r) setCountdown(r); };
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [livePrayerTimes, computeCountdown]);
-
-  // ── EFFECT: Simulated compass ─────────────────────────────────────────────
-  useEffect(() => {
-    const t = setInterval(() => setLiveCompassAngle((p) => (p + 1.5) % 360), 80);
-    return () => clearInterval(t);
-  }, []);
-
-  const effectiveCompass = liveCompassAngle;
-  const isAligned = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
-
-  // ── EFFECT: Quran audio ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!audioPlaying) {
-      soundRef.current?.stopAsync().catch(() => {});
-      return;
-    }
-    let cancelled = false;
-    const playAyah = async (idx) => {
-      if (cancelled || idx >= FATIHA.length) { setAudioPlaying(false); setCurrentAyah(0); return; }
-      setCurrentAyah(idx);
-      setAudioLoadingAyah(true);
-      try {
-        await soundRef.current?.unloadAsync();
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: AUDIO_SOURCES.fatiha[idx] }, { shouldPlay: true, volume: 1.0 }
-        );
-        soundRef.current = sound;
-        setAudioLoadingAyah(false);
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.didJustFinish && !cancelled) playAyah(idx + 1);
-        });
-      } catch (_) {
-        setAudioLoadingAyah(false);
-        if (!cancelled) setTimeout(() => { if (!cancelled) playAyah(idx + 1); }, 3000);
-      }
-    };
-    playAyah(currentAyah);
-    return () => {
-      cancelled = true;
-      soundRef.current?.stopAsync().catch(() => {});
-    };
-  }, [audioPlaying]);
-
-  // ── EFFECT: Azan trigger ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!azanOn || !livePrayerTimes) return;
-    const interval = setInterval(() => {
-      const now = new Date();
-      const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      livePrayerTimes.forEach((p) => {
-        const timeStr = p.time ? p.time.substring(0, 5) : "";
-        if (timeStr === nowStr && !azanTriggered[timeStr]) {
-          setAzanTriggered((prev) => ({ ...prev, [timeStr]: true }));
-          playAzan(p.name);
-        }
-      });
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [azanOn, livePrayerTimes, azanTriggered]);
-
-  const playAzan = async (prayerName) => {
-    try {
-      await azanRef.current?.unloadAsync();
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: AUDIO_SOURCES.azan }, { shouldPlay: true, volume: 1.0 }
-      );
-      azanRef.current = sound;
-      sendNotif(`🕌 أذان ${prayerName}`);
-    } catch (_) { sendNotif(`🕌 حان وقت أذان ${prayerName}`); }
-  };
-
-  // ── EFFECT: Salah reminder — lightweight ─────────────────────────────────
-  useEffect(() => {
-    if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
-    if (!salahOn) return;
-    salahReminderTimer.current = setInterval(() => {
-      sendNotif("اللهم صلِّ وسلِّمْ على نبيِّنا محمد ﷺ");
-    }, salahInt * 60 * 1000);
-    return () => { if (salahReminderTimer.current) clearInterval(salahReminderTimer.current); };
-  }, [salahOn, salahInt]);
-
-  // ── EFFECT: Dhikr rotation ────────────────────────────────────────────────
-  useEffect(() => {
-    if (fastAlert) return;
-    const t = setInterval(() => setDhikrIdx((p) => (p + 1) % DHIKR_PHRASES.length), 4000);
-    return () => clearInterval(t);
-  }, [fastAlert]);
-
-  // ── EFFECT: Cleanup audio ─────────────────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync().catch(() => {});
-      azanRef.current?.unloadAsync().catch(() => {});
-    };
-  }, []);
-
-  // ── EFFECT: Hardware back ─────────────────────────────────────────────────
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (activeTab !== "home") { setActiveTab("home"); return true; }
-      return false;
-    });
-    return () => sub.remove();
-  }, [activeTab]);
-
-  const sendNotif = (msg) => {
-    setNotifMsg(msg);
-    setTimeout(() => setNotifMsg(""), 3500);
-  };
-
-  const handleTasbeeh = () => {
-    const n = tasbeehCount + 1;
-    setTasbeehCount(n);
-    // Persist immediately on each tap (debounced by OS write coalescing)
-    safeSet(STORAGE_KEYS.TASBEEH, n);
-    setTShake(true);
-    setTimeout(() => setTShake(false), 300);
-    if (n === 33 || n === 100) { setTFlash(true); setTimeout(() => setTFlash(false), 1000); }
-  };
-
-  const handleWordPress = (w) => { setSoundWave(true); setWordPopup(w); setTimeout(() => { setSoundWave(false); setWordPopup(null); }, 2500); };
-  const handleWordLong = (w) => setLongModal(w);
-  const decrement = (arr, setArr, idx) => { const next = [...arr]; if (next[idx] > 0) next[idx]--; setArr(next); };
-
-  const displayedPrayerTimes = livePrayerTimes || FALLBACK_PRAYER_TIMES;
-
-  // ── SPLASH ────────────────────────────────────────────────────────────────
-  if (screen === "splash") {
-    return (
-      <View style={styles.splashWrap}>
-        <View style={styles.splashGlow} />
-        <Text style={styles.splashEmoji}>☪️</Text>
-        <Text style={styles.splashTitle}>مُصلِّي</Text>
-        <Text style={styles.splashSub}>مساعدك القرآني الذكي</Text>
-        <View style={styles.splashBarTrack}><View style={styles.splashBarFill} /></View>
-      </View>
-    );
-  }
-
-  const NAV_TABS = [
-    { id: "home", icon: "🏠", label: "الرئيسية" },
-    { id: "quran", icon: "📖", label: "القرآن" },
-    { id: "tasbeeh", icon: "📿", label: "التسبيح" },
-    { id: "qibla", icon: "🧭", label: "القبلة" },
-    { id: "azkar", icon: "🤲", label: "الأذكار" },
-    { id: "stats", icon: "📊", label: "الإحصاء" },
-    { id: "settings", icon: "⚙️", label: "الإعدادات" },
-  ];
+// ═══════════════════════════════════════════════════════════════════════════════
+//  الفقاعة العائمة (قابلة للسحب)
+// ═══════════════════════════════════════════════════════════════════════════════
+function FloatingBubble({ T, count, onTap, onClose }) {
+  const pos = useRef(new Animated.ValueXY({ x: SW - 90, y: SH * 0.35 })).current;
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant() {
+        pos.setOffset({ x: pos.x._value, y: pos.y._value });
+        pos.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: Animated.event([null, { dx: pos.x, dy: pos.y }], { useNativeDriver: false }),
+      onPanResponderRelease(_, g) {
+        pos.flattenOffset();
+        // تثبيت ضمن حدود الشاشة
+        const clampedX = Math.max(0, Math.min(SW - 80, pos.x._value));
+        const clampedY = Math.max(60, Math.min(SH - 180, pos.y._value));
+        Animated.spring(pos, { toValue: { x: clampedX, y: clampedY }, useNativeDriver: false }).start();
+      },
+    })
+  ).current;
 
   return (
-    <View style={[styles.appRoot, { backgroundColor: T.bg }]}>
-      {/* Toast */}
-      {notifMsg ? (
-        <View style={[styles.toast, { borderColor: T.accentBorder }]}>
-          <Text style={styles.toastText}>{notifMsg}</Text>
-        </View>
-      ) : null}
+    <Animated.View
+      style={[ss.floatBubble, { left: pos.x, top: pos.y, borderColor: T.accent, shadowColor: T.accent }]}
+      {...pan.panHandlers}
+    >
+      <TouchableOpacity onPress={onTap} activeOpacity={0.85} style={{ alignItems: "center" }}>
+        <Text style={ss.floatBubbleEmoji}>📿</Text>
+        <Text style={[ss.floatBubbleCount, { color: T.accent }]}>{count}</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onClose} style={ss.floatBubbleClose}>
+        <Text style={{ color: "#666", fontSize: 10 }}>✕</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
-      {/* Floating tasbeeh widget */}
-      {floatW && (
-        <TouchableOpacity
-          onPress={handleTasbeeh}
-          style={[styles.floatWidget, { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent }]}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.floatWidgetEmoji}>📿</Text>
-          <Text style={[styles.floatWidgetCount, { color: T.accent }]}>{tasbeehCount}</Text>
-          <Text style={[styles.floatWidgetLabel, { color: T.accent }]}>تسبيح</Text>
-        </TouchableOpacity>
-      )}
+// ═══════════════════════════════════════════════════════════════════════════════
+//  مودال الشراء (IAP)
+// ═══════════════════════════════════════════════════════════════════════════════
+function PurchaseModal({ T, themeId, onClose, onPurchaseSuccess, promoInputs, setPromoCode, submitPromo }) {
+  const [buying, setBuying] = useState(false);
+  if (!themeId) return null;
+  const th = getTheme(themeId);
 
-      {/* Word tap popup */}
-      {wordPopup ? (
-        <View style={[styles.wordPopup, { borderColor: T.accentBorder }]}>
-          <Text style={styles.wordPopupText}>{wordPopup}</Text>
-          {soundWave && (
-            <View style={styles.soundWaveRow}>
-              {[...Array(14)].map((_, i) => (
-                <View key={i} style={[styles.soundWaveBar, { backgroundColor: T.accent, height: 8 + Math.abs(Math.sin(i)) * 24 }]} />
-              ))}
+  const handleBuy = async () => {
+    if (!RNIap) {
+      // وضع التطوير: شراء وهمي مباشر
+      Alert.alert(
+        "وضع التطوير",
+        `سيتم شراء "${th.name}" فعلياً عند رفع التطبيق للمتجر.\nهل تريد تفعيل الوضع التجريبي؟`,
+        [
+          { text: "إلغاء", style: "cancel" },
+          { text: "تفعيل تجريبي", onPress: () => { onPurchaseSuccess(themeId); onClose(); } },
+        ]
+      );
+      return;
+    }
+    try {
+      setBuying(true);
+      await RNIap.initConnection();
+      const sku = IAP_SKUS[themeId];
+      if (!sku) { Alert.alert("خطأ", "هذا المنتج غير متاح في متجرك"); setBuying(false); return; }
+      const purchase = await RNIap.requestPurchase({ sku, andDangerouslyFinishTransactionAutomaticallyIOS: false });
+      if (purchase) {
+        await RNIap.finishTransaction({ purchase, isConsumable: false });
+        onPurchaseSuccess(themeId);
+        onClose();
+      }
+    } catch (e) {
+      if (e?.code !== "E_USER_CANCELLED") Alert.alert("خطأ في الشراء", e?.message || "حدث خطأ غير متوقع");
+    } finally {
+      setBuying(false);
+    }
+  };
+
+  const pi = promoInputs[themeId] || {};
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={ss.purchaseOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} onPress={() => {}}
+          style={[ss.purchaseSheet, { borderColor: th.accentBorder }]}>
+          <ScrollView>
+            <View style={ss.purchaseHandle} />
+            <View style={ss.purchaseHeaderRow}>
+              <LinearGradient colors={th.grad} style={ss.purchaseEmojiBox}>
+                <Text style={ss.purchaseEmoji}>{th.emoji}</Text>
+              </LinearGradient>
+              <View style={{ flex: 1, marginHorizontal: 12 }}>
+                <Text style={ss.purchaseName}>{th.name}</Text>
+                <Text style={ss.purchaseSubName}>مُصلِّي — متجر الثيمات</Text>
+              </View>
+              <View style={[ss.purchasePriceBadge, { backgroundColor: th.accentSoft, borderColor: th.accentBorder }]}>
+                <Text style={[ss.purchasePriceText, { color: th.accent }]}>{th.price}</Text>
+              </View>
             </View>
-          )}
-          <Text style={styles.wordPopupSub}>🔊 جارٍ تشغيل الصوت...</Text>
+            <Text style={ss.purchaseDesc}>{th.desc}</Text>
+            {themeId === "vip_royal" && (
+              <View style={ss.vipBox}>
+                <Text style={[ss.vipBoxTitle, { color: th.accent }]}>✦ يشمل الـ VIP:</Text>
+                {["جميع الثيمات مفتوحة","إزالة الإعلانات نهائياً","عداد الختمة التفاعلي","فقاعة المسبحة المتحركة","أولوية التطوير"].map((d,i) => (
+                  <Text key={i} style={ss.vipBoxItem}>• {d}</Text>
+                ))}
+              </View>
+            )}
+            <TouchableOpacity
+              style={[ss.purchaseBuyBtn, { backgroundColor: th.accent, opacity: buying ? 0.6 : 1 }]}
+              onPress={handleBuy} disabled={buying}>
+              {buying ? <ActivityIndicator color="#000" /> :
+                <Text style={ss.purchaseBuyBtnText}>شراء عبر المتجر — {th.price}</Text>}
+            </TouchableOpacity>
+            {/* كود ترويجي */}
+            <View style={ss.purchasePromoSection}>
+              <Text style={ss.purchasePromoLabel}>🎁 لديك كود ترويجي؟</Text>
+              <View style={ss.purchasePromoRow}>
+                <TextInput
+                  style={[ss.purchasePromoInput, { borderColor: th.accentBorder }]}
+                  placeholder="أدخل الكود..." placeholderTextColor="#555"
+                  textAlign="right" value={pi.code || ""}
+                  onChangeText={(v) => setPromoCode(themeId, v)}
+                />
+                <TouchableOpacity
+                  style={[ss.purchasePromoBtn, { backgroundColor: th.accentSoft, borderColor: th.accentBorder }]}
+                  onPress={() => submitPromo(themeId)}>
+                  <Text style={[ss.purchasePromoBtnText, { color: th.accent }]}>تفعيل</Text>
+                </TouchableOpacity>
+              </View>
+              {pi.msg ? <Text style={[ss.purchasePromoMsg, { color: pi.msg.startsWith("❌") ? "#ef4444" : "#22c55e" }]}>{pi.msg}</Text> : null}
+            </View>
+            <TouchableOpacity style={ss.purchaseCancelBtn} onPress={onClose}>
+              <Text style={ss.purchaseCancelText}>إلغاء</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  الشاشة الرئيسية
+// ═══════════════════════════════════════════════════════════════════════════════
+function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, locationCity, prayerLoading, streak }) {
+  return (
+    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+      {/* رأس الصفحة */}
+      <View style={[ss.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
+        <Text style={ss.homeHeaderGreg}>{greg.dayName}، {greg.day} {greg.month} {greg.year}</Text>
+        <View style={ss.homeHeaderRow}>
+          <Text style={ss.homeHeaderTitle}>مُصلِّي</Text>
+          <Text style={[ss.homeHeaderHijri, { color: T.accent }]}>{hijri.day} {hijri.monthName} {hijri.year} هـ</Text>
+        </View>
+        {locationCity ? <Text style={[ss.homeHeaderCity, { color: T.accent }]}>📍 {locationCity}</Text> : null}
+        {streak > 1 && (
+          <View style={[ss.streakBadge, { borderColor: T.accentBorder, backgroundColor: T.accentSoft }]}>
+            <Text style={[ss.streakText, { color: T.accent }]}>🔥 {streak} أيام متتالية</Text>
+          </View>
+        )}
+      </View>
+
+      {/* بانر الذكر */}
+      <View style={[ss.dhikrBanner, { backgroundColor: fastAlert ? "#1a0e00" : T.cardBg, borderBottomColor: fastAlert ? "#f59e0b44" : T.cardBorder }]}>
+        {fastAlert
+          ? <Text style={ss.fastAlertText}>🌟 {fastAlert}</Text>
+          : <Text style={[ss.dhikrText, { color: T.accent }]}>{DHIKR_PHRASES[dhikrIdx]}</Text>}
+      </View>
+
+      {/* العداد التنازلي — دقائق فقط */}
+      <View style={[ss.countdownRow, { backgroundColor: T.cardBg, borderBottomColor: T.cardBorder }]}>
+        <Text style={ss.countdownLabel}>المتبقي لأذان {countdown.label}</Text>
+        <Text style={[ss.countdownVal, { color: T.accent }]}>
+          {pad(countdown.hours)}:{pad(countdown.mins)}
+        </Text>
+        <Text style={ss.countdownHint}>س:د</Text>
+      </View>
+
+      {/* شريط مواقيت الصلاة */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        style={[ss.prayerStrip, { borderBottomColor: T.cardBorder }]}
+        contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}>
+        {prayerLoading
+          ? <View style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
+              <Text style={{ color: "#555", fontSize: 12 }}>⏳ جارٍ تحميل مواقيت الصلاة...</Text>
+            </View>
+          : prayerTimes.map((p) => (
+              <View key={p.name} style={[ss.prayerChip, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
+                <Text style={ss.prayerChipName}>{p.name}</Text>
+                <Text style={[ss.prayerChipTime, { color: T.accent }]}>{p.time ? p.time.substring(0, 5) : "--:--"}</Text>
+              </View>
+            ))}
+      </ScrollView>
+
+      {/* متابعة القراءة */}
+      {bookmark ? (
+        <View style={[ss.bookmarkCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
+          <View>
+            <Text style={ss.bookmarkLabel}>من حيث توقفت</Text>
+            <Text style={ss.bookmarkValue}>سورة الفاتحة — آية {bookmark}</Text>
+          </View>
+          <TouchableOpacity style={[ss.bookmarkBtn, { backgroundColor: T.accent }]} onPress={() => setActiveTab("quran")}>
+            <Text style={ss.bookmarkBtnText}>متابعة</Text>
+          </TouchableOpacity>
         </View>
       ) : null}
 
-      {/* Long press word modal */}
+      {/* شبكة التنقل */}
+      <View style={ss.homeGrid}>
+        {[
+          { icon: "📖", label: "القرآن الكريم",    sub: "سورة الفاتحة",  tab: "quran"   },
+          { icon: "📿", label: "المسبحة",           sub: "عداد التسبيح", tab: "tasbeeh" },
+          { icon: "🧭", label: "اتجاه القبلة",      sub: "مكة المكرمة",  tab: "qibla"   },
+          { icon: "🤲", label: "الأذكار والسنن",    sub: "أذكار الصباح", tab: "azkar"   },
+        ].map((c) => (
+          <TouchableOpacity key={c.label} activeOpacity={0.85} onPress={() => setActiveTab(c.tab)}
+            style={[ss.homeGridCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
+            <Text style={ss.homeGridIcon}>{c.icon}</Text>
+            <Text style={ss.homeGridLabel}>{c.label}</Text>
+            <Text style={ss.homeGridSub}>{c.sub}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* إنجاز اليوم */}
+      <Card T={T} title="📊 إنجاز اليوم">
+        <PBar T={T} label="أذكار الصباح"  pct={75} />
+        <PBar T={T} label="أذكار المساء"  pct={30} color="#3b82f6" />
+        <PBar T={T} label="السنن اليومية" pct={50} color="#f59e0b" />
+      </Card>
+
+      {/* تنبيه الصلاة */}
+      <Card T={T} title={`⏰ اقتربت صلاة ${countdown.label}`}>
+        <Text style={ss.nextPrayerSub}>متبقي {pad(countdown.hours)} ساعة و{pad(countdown.mins)} دقيقة</Text>
+        <TouchableOpacity
+          style={[ss.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+          onPress={() => sendNotif(`🔔 اقتربت صلاة ${countdown.label}، استعد!`)}>
+          <Text style={[ss.nextPrayerBtnText, { color: T.accent }]}>🔔 تذكيرني</Text>
+        </TouchableOpacity>
+      </Card>
+
+      {/* توثيق المصادر */}
+      <View style={ss.sourceFooter}>
+        <Text style={ss.sourceText}>📖 القرآن: Tanzil.net | 🕌 المواقيت: Aladhan API | 🧭 القبلة: الهيئة العامة للمساحة</Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  شاشة القرآن
+// ═══════════════════════════════════════════════════════════════════════════════
+function QuranScreen({ T, fontSize, setFontSize, searchQuery, setSearchQuery, currentAyah, setCurrentAyah, audioPlaying, setAudioPlaying, bookmark, setBookmark, onWordPress, onWordLong, audioLoadingAyah, wordPopup, longModal, setLongModal }) {
+  const timerRef = useRef(null);
+  const tap  = (w) => { timerRef.current = setTimeout(() => { timerRef.current = null; onWordLong(w); }, 600); };
+  const release = (w) => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; onWordPress(w); } };
+  const filtered = searchQuery ? FATIHA.filter((a) => a.text.includes(searchQuery)) : FATIHA;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={[ss.quranHeader, { borderBottomColor: T.cardBorder }]}>
+        <Text style={ss.quranHeaderTitle}>سورة الفاتحة</Text>
+        <Text style={ss.quranHeaderSub}>7 آيات — مكية — الجزء 1</Text>
+      </View>
+
+      {/* بحث */}
+      <View style={[ss.quranSearchRow, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
+        <Text style={ss.quranSearchIcon}>🔍</Text>
+        <TextInput style={ss.quranSearchInput} placeholder="ابحث في الآيات..." placeholderTextColor="#555"
+          textAlign="right" value={searchQuery} onChangeText={setSearchQuery} />
+        {searchQuery ? <TouchableOpacity onPress={() => setSearchQuery("")}><Text style={ss.quranSearchClear}>✕</Text></TouchableOpacity> : null}
+      </View>
+
+      {/* حجم الخط */}
+      <View style={ss.fontSizeRow}>
+        <TouchableOpacity style={[ss.fontBtn, { borderColor: T.accentBorder }]} onPress={() => setFontSize(p => Math.max(18, p - 2))}>
+          <Text style={[ss.fontBtnText, { color: T.accent }]}>أ−</Text>
+        </TouchableOpacity>
+        <Text style={[ss.fontSizeVal, { color: T.accent }]}>{fontSize}px</Text>
+        <TouchableOpacity style={[ss.fontBtn, { borderColor: T.accentBorder }]} onPress={() => setFontSize(p => Math.min(44, p + 2))}>
+          <Text style={[ss.fontBtnText, { color: T.accent }]}>أ+</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[ss.bookmarkInline, { borderColor: T.accentBorder }]} onPress={() => setBookmark(currentAyah + 1)}>
+          <Text style={[ss.bookmarkInlineText, { color: T.accent }]}>🔖 حفظ الآية {currentAyah + 1}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={{ flex: 1 }}>
+        <View style={[ss.ayahsBox, { borderColor: T.cardBorder }]}>
+          <Text style={[ss.basmalah, { color: T.accent }]}>بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ</Text>
+          {filtered.map((ayah, idx) => (
+            <View key={ayah.id}
+              style={[ss.ayahRow, { backgroundColor: currentAyah === idx ? `${T.accent}14` : "transparent" }]}>
+              {bookmark === ayah.id && <View style={[ss.bookmarkRibbon, { backgroundColor: T.accent }]} />}
+              <View style={[ss.ayahNumCircle, { backgroundColor: T.ayahNumBg }]}>
+                <Text style={[ss.ayahNumText, { color: T.ayahNumColor }]}>{ayah.id}</Text>
+              </View>
+              <View style={ss.ayahWordsWrap}>
+                {ayah.words.map((w, wi) => (
+                  <TouchableOpacity key={wi} activeOpacity={0.6}
+                    onPressIn={() => tap(w)} onPressOut={() => release(w)}>
+                    <Text style={[ss.ayahWord, { fontSize }]}>{w}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+          <Text style={ss.ayahHint}>اضغط قصيراً للسماع • اضغط مطولاً للتفسير والإعراب</Text>
+        </View>
+        <View style={ss.sourceFooter}>
+          <Text style={ss.sourceText}>المصدر: Tanzil.net — نص عثماني محقق ومعتمد</Text>
+        </View>
+      </ScrollView>
+
+      {/* مشغّل الصوت */}
+      <View style={[ss.audioPlayer, { borderColor: T.cardBorder, backgroundColor: T.cardBg }]}>
+        <TouchableOpacity style={ss.audioBtnSmall} onPress={() => setCurrentAyah(p => Math.max(0, p - 1))}>
+          <Text style={ss.audioBtnSmallText}>⏮</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[ss.audioBtnMain, { backgroundColor: audioPlaying ? "#ef4444" : T.accent }]}
+          onPress={() => setAudioPlaying(p => !p)}>
+          <Text style={ss.audioBtnMainText}>{audioLoadingAyah ? "⏳" : audioPlaying ? "⏸" : "▶"}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={ss.audioBtnSmall} onPress={() => setCurrentAyah(p => Math.min(FATIHA.length - 1, p + 1))}>
+          <Text style={ss.audioBtnSmallText}>⏭</Text>
+        </TouchableOpacity>
+        <View style={ss.audioProgressWrap}>
+          <Text style={ss.audioProgressLabel}>الآية {currentAyah + 1} من {FATIHA.length}</Text>
+          <View style={ss.audioProgressTrack}>
+            <View style={[ss.audioProgressFill, { backgroundColor: T.accent, width: `${((currentAyah + 1) / FATIHA.length) * 100}%` }]} />
+          </View>
+        </View>
+        <Text style={[ss.audioStatus, { color: audioPlaying ? T.accent : "#444" }]}>
+          {audioLoadingAyah ? "⏳ تحميل" : audioPlaying ? "🔊 يشتغل" : "⏸ موقوف"}
+        </Text>
+      </View>
+
+      {/* نافذة التفسير */}
       <Modal visible={!!longModal} transparent animationType="fade" onRequestClose={() => setLongModal(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setLongModal(null)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.longModalBox, { borderColor: T.cardBorder }]} onPress={() => {}}>
+        <TouchableOpacity style={ss.modalOverlay} activeOpacity={1} onPress={() => setLongModal(null)}>
+          <TouchableOpacity activeOpacity={1} style={[ss.longModalBox, { borderColor: T.cardBorder }]} onPress={() => {}}>
             <ScrollView>
-              <Text style={styles.longModalWord}>{longModal}</Text>
-              <View style={styles.longModalDivider} />
+              <Text style={[ss.longModalWord, { color: T.accent }]}>{longModal}</Text>
+              <View style={ss.longModalDivider} />
               {longModal && WORD_MEANINGS[longModal] ? (
                 <>
                   <RI label="المعنى" value={WORD_MEANINGS[longModal].m} />
                   <RI label="الجذر" value={WORD_MEANINGS[longModal].r} />
                   <RI label="الإعراب" value={WORD_MEANINGS[longModal].g} />
                 </>
-              ) : (
-                <Text style={styles.longModalNoData}>لا يوجد تفسير مسجّل لهذه الكلمة</Text>
-              )}
-              <View style={styles.longModalDivider} />
-              <Text style={styles.longModalFontLabel}>حجم الخط</Text>
-              <View style={styles.longModalFontRow}>
-                <Btn T={T} label="أ−" onPress={() => setFontSize((p) => Math.max(18, p - 2))} />
-                <Text style={[styles.longModalFontVal, { color: T.accent }]}>{fontSize}px</Text>
-                <Btn T={T} label="أ+" onPress={() => setFontSize((p) => Math.min(44, p + 2))} />
-              </View>
-              <Text style={styles.longModalHint}>🔊 النطق: مدّ حرف المد، وأظهر التشديد، والتقط النفَس عند الوقف.</Text>
-              <TouchableOpacity style={[styles.longModalClose, { backgroundColor: T.accent }]} onPress={() => setLongModal(null)}>
-                <Text style={styles.longModalCloseText}>إغلاق</Text>
+              ) : <Text style={ss.longModalNoData}>لا يوجد تفسير مسجّل لهذه الكلمة</Text>}
+              <View style={ss.longModalDivider} />
+              <Text style={ss.longModalHint}>🔊 النطق: مدّ حرف المد، أظهر التشديد، والتقط النفَس عند الوقف.</Text>
+              <TouchableOpacity style={[ss.longModalClose, { backgroundColor: T.accent }]} onPress={() => setLongModal(null)}>
+                <Text style={ss.longModalCloseText}>إغلاق</Text>
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
-
-      {/* Screens */}
-      <View style={styles.screensWrap}>
-        {activeTab === "home" && (
-          <HomeScreen
-            T={T} bookmark={bookmark} sendNotif={sendNotif} setActiveTab={setActiveTab}
-            dhikrIdx={dhikrIdx} fastAlert={fastAlert} hijri={hijri} greg={greg}
-            countdown={countdown} prayerTimes={displayedPrayerTimes}
-            locationCity={locationCity} prayerLoading={prayerLoading} streakDays={streakDays}
-          />
-        )}
-        {activeTab === "quran" && (
-          <QuranScreen
-            T={T} fontSize={fontSize} searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-            currentAyah={currentAyah} setCurrentAyah={setCurrentAyah}
-            audioPlaying={audioPlaying} setAudioPlaying={setAudioPlaying}
-            bookmark={bookmark} setBookmark={setBookmark}
-            onWordPress={handleWordPress} onWordLong={handleWordLong}
-            audioLoadingAyah={audioLoadingAyah}
-          />
-        )}
-        {activeTab === "tasbeeh" && (
-          <TasbeehScreen
-            T={T} count={tasbeehCount} onTap={handleTasbeeh}
-            onReset={() => { setTasbeehCount(0); safeSet(STORAGE_KEYS.TASBEEH, 0); }}
-            shake={tShake} flash={tFlash} floatW={floatW} setFloatW={setFloatW}
-            sendNotif={sendNotif}
-          />
-        )}
-        {activeTab === "qibla" && (
-          <QiblaScreen
-            T={T} compassAngle={effectiveCompass} isAligned={isAligned}
-            qiblaAngle={qiblaAngle} locationCity={locationCity} userLocation={userLocation}
-          />
-        )}
-        {activeTab === "azkar" && (
-          <AzkarScreen
-            T={T} azkarTab={azkarTab} setAzkarTab={setAzkarTab}
-            morningC={morningC} setMorningC={setMorningC}
-            eveningC={eveningC} setEveningC={setEveningC}
-            sleepC={sleepC} setSleepC={setSleepC}
-            travelC={travelC} setTravelC={setTravelC}
-            homeC={homeC} setHomeC={setHomeC}
-            sunnahC={sunnahC} setSunnahC={setSunnahC}
-            decrement={decrement}
-          />
-        )}
-        {activeTab === "stats" && <StatsScreen T={T} streakDays={streakDays} tasbeehCount={tasbeehCount} />}
-        {activeTab === "settings" && (
-          <SettingsScreen
-            T={T}
-            azanOn={azanOn} setAzanOn={setAzanOn}
-            salahOn={salahOn} setSalahOn={setSalahOn}
-            salahInt={salahInt} setSalahInt={setSalahInt}
-            preOn={preOn} setPreOn={setPreOn}
-            autoAzkar={autoAzkar} setAutoAzkar={setAutoAzkar}
-            travelOn={travelOn} setTravelOn={setTravelOn}
-            fastOn={fastOn} setFastOn={setFastOn}
-            fastMT={fastMT} setFastMT={setFastMT}
-            fastWD={fastWD} setFastWD={setFastWD}
-            activeThemeId={activeThemeId}
-            onSelectTheme={(id) => { setActiveThemeId(id); sendNotif("✅ تم تطبيق " + getTheme(id).name); }}
-            sendNotif={sendNotif}
-          />
-        )}
-      </View>
-
-      {/* Bottom nav */}
-      <View style={[styles.bottomNav, { borderTopColor: T.cardBorder, backgroundColor: "#070707" }]}>
-        <View style={styles.bottomNavContent}>
-          {NAV_TABS.map((t) => {
-            const isActive = activeTab === t.id;
-            return (
-              <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn} activeOpacity={0.7}>
-                <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.accentBorder }]}>
-                  <Text style={[styles.navTabIcon, { opacity: isActive ? 1 : 0.4 }]}>{t.icon}</Text>
-                </View>
-                <Text style={[styles.navTabLabel, { color: isActive ? T.accent : "#3a3a3a", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
     </View>
   );
 }
 
-// ─── HOME SCREEN ──────────────────────────────────────────────────────────────
-function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, locationCity, prayerLoading, streakDays }) {
-  return (
-    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-      <View style={[styles.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
-        <Text style={styles.homeHeaderGreg}>{greg.dayName}، {greg.day} {greg.month} {greg.year}</Text>
-        <View style={styles.homeHeaderRow}>
-          <Text style={styles.homeHeaderTitle}>مُصلِّي</Text>
-          <Text style={[styles.homeHeaderHijri, { color: T.accent }]}>{hijri.day} {hijri.monthName} {hijri.year} هـ</Text>
-        </View>
-        {locationCity ? <Text style={[styles.homeHeaderCity, { color: T.accent }]}>📍 {locationCity}</Text> : null}
-        {streakDays > 0 && (
-          <Text style={[styles.streakBadge, { color: T.accent }]}>🔥 {streakDays} أيام متتالية</Text>
-        )}
-      </View>
-
-      <View style={[styles.dhikrBanner, { backgroundColor: fastAlert ? "#1a0e00" : T.cardBg, borderBottomColor: fastAlert ? "#f59e0b44" : T.cardBorder }]}>
-        {fastAlert
-          ? <Text style={styles.fastAlertText}>🌟 {fastAlert}</Text>
-          : <Text style={[styles.dhikrText, { color: T.accent }]}>{DHIKR_PHRASES[dhikrIdx]}</Text>}
-      </View>
-
-      <View style={[styles.countdownRow, { backgroundColor: T.cardBg, borderBottomColor: T.cardBorder }]}>
-        <Text style={styles.countdownLabel}>الوقت المتبقي لأذان {countdown.label}</Text>
-        <Text style={[styles.countdownVal, { color: T.accent, writingDirection: "ltr" }]}>
-          {pad(countdown.mins)}:{pad(countdown.secs)}
-        </Text>
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        style={[styles.prayerStrip, { borderBottomColor: T.cardBorder }]}
-        contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}
-      >
-        {prayerLoading
-          ? <View style={{ paddingVertical: 14, paddingHorizontal: 10 }}><Text style={{ color: "#555", fontSize: 12 }}>⏳ جارٍ تحميل مواقيت الصلاة...</Text></View>
-          : prayerTimes.map((p) => (
-            <View key={p.name} style={[styles.prayerChip, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-              <Text style={styles.prayerChipName}>{p.name}</Text>
-              <Text style={[styles.prayerChipTime, { color: T.accent }]}>{p.time ? p.time.substring(0, 5) : "--:--"}</Text>
-            </View>
-          ))
-        }
-      </ScrollView>
-
-      {bookmark && (
-        <View style={[styles.bookmarkCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
-          <View>
-            <Text style={styles.bookmarkLabel}>من حيث توقفت</Text>
-            <Text style={styles.bookmarkValue}>سورة الفاتحة — آية {bookmark}</Text>
-          </View>
-          <TouchableOpacity style={[styles.bookmarkBtn, { backgroundColor: T.accent }]} onPress={() => setActiveTab("quran")}>
-            <Text style={styles.bookmarkBtnText}>متابعة القراءة</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <View style={styles.homeGrid}>
-        {[
-          { icon: "📖", label: "القرآن الكريم", sub: "سورة الفاتحة", tab: "quran" },
-          { icon: "📿", label: "المسبحة", sub: "عداد التسبيح", tab: "tasbeeh" },
-          { icon: "🧭", label: "اتجاه القبلة", sub: "مكة المكرمة", tab: "qibla" },
-          { icon: "🤲", label: "الأذكار والسنن", sub: "أذكار الصباح", tab: "azkar" },
-        ].map((c) => (
-          <TouchableOpacity key={c.label} activeOpacity={0.85} onPress={() => setActiveTab(c.tab)}
-            style={[styles.homeGridCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
-            <Text style={styles.homeGridIcon}>{c.icon}</Text>
-            <Text style={styles.homeGridLabel}>{c.label}</Text>
-            <Text style={styles.homeGridSub}>{c.sub}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Card T={T} title="📊 إنجاز اليوم">
-        <PBar T={T} label="أذكار الصباح" pct={75} />
-        <PBar T={T} label="أذكار المساء" pct={30} color="#3b82f6" />
-        <PBar T={T} label="السنن اليومية" pct={50} color="#f59e0b" />
-      </Card>
-
-      <Card T={T} title="⏰ تنبيه الصلاة القادمة">
-        <Text style={styles.nextPrayerSub}>صلاة {countdown.label} — متبقي {countdown.mins} دقيقة</Text>
-        <TouchableOpacity
-          style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-          onPress={() => sendNotif(`🔔 تذكير بصلاة ${countdown.label}!`)}
-        >
-          <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>🔔 تذكيرني قبل 15 دقيقة</Text>
-        </TouchableOpacity>
-      </Card>
-    </ScrollView>
-  );
-}
-
-// ─── QURAN SCREEN ─────────────────────────────────────────────────────────────
-function QuranScreen({ T, fontSize, searchQuery, setSearchQuery, currentAyah, setCurrentAyah, audioPlaying, setAudioPlaying, bookmark, setBookmark, onWordPress, onWordLong, audioLoadingAyah }) {
-  const timerRef = useRef(null);
-  const tap = (w) => { timerRef.current = setTimeout(() => { timerRef.current = null; onWordLong(w); }, 600); };
-  const release = (w) => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; onWordPress(w); } };
-  const filtered = searchQuery ? FATIHA.filter((a) => a.text.includes(searchQuery)) : FATIHA;
-
-  return (
-    <View style={{ flex: 1 }}>
-      <View style={[styles.quranHeader, { borderBottomColor: T.cardBorder }]}>
-        <Text style={styles.quranHeaderTitle}>سورة الفاتحة</Text>
-        <Text style={styles.quranHeaderSub}>7 آيات — مكية — الجزء 1</Text>
-      </View>
-
-      <View style={[styles.quranSearchRow, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-        <Text style={styles.quranSearchIcon}>🔍</Text>
-        <TextInput style={styles.quranSearchInput} placeholder="ابحث في القرآن الكريم..." placeholderTextColor="#555"
-          textAlign="right" value={searchQuery} onChangeText={setSearchQuery} />
-        {searchQuery ? <TouchableOpacity onPress={() => setSearchQuery("")}><Text style={styles.quranSearchClear}>✕</Text></TouchableOpacity> : null}
-      </View>
-
-      <View style={styles.quranBookmarkRow}>
-        <TouchableOpacity style={[styles.quranBookmarkBtn, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}
-          onPress={() => setBookmark(currentAyah + 1)}>
-          <Text style={styles.quranBookmarkBtnText}>🔖 حفظ موضع القراءة</Text>
-        </TouchableOpacity>
-      </View>
-      {bookmark ? <Text style={[styles.quranBookmarkSaved, { color: T.accent }]}>✅ تم حفظ الآية {bookmark}</Text> : null}
-
-      <ScrollView style={{ flex: 1 }}>
-        <View style={[styles.ayahsBox, { borderColor: T.cardBorder }]}>
-          <Text style={styles.basmalah}>بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ</Text>
-          {filtered.map((ayah, idx) => (
-            <View key={ayah.id} style={[styles.ayahRow, { backgroundColor: currentAyah === idx ? `${T.accent}0d` : "transparent" }]}>
-              {bookmark === ayah.id && (
-                <View style={styles.ribbonWrap}>
-                  <LinearGradient colors={["#f59e0b", "#d97706"]} style={styles.ribbonBody} />
-                  <View style={styles.ribbonTriangle} />
-                </View>
-              )}
-              <View style={[styles.ayahNumCircle, { backgroundColor: T.ayahNumBg }]}>
-                <Text style={[styles.ayahNumText, { color: T.ayahNumColor }]}>{ayah.id}</Text>
-              </View>
-              <View style={styles.ayahWordsWrap}>
-                {ayah.words.map((w, wi) => (
-                  <TouchableOpacity key={wi} activeOpacity={0.6} onPressIn={() => tap(w)} onPressOut={() => release(w)}>
-                    <Text style={[styles.ayahWord, { fontSize }]}>{w}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ))}
-          <Text style={styles.ayahHint}>اضغط على كلمة لسماعها • اضغط مطولاً للتفسير والضبط</Text>
-        </View>
-      </ScrollView>
-
-      <View style={[styles.audioPlayer, { borderColor: T.cardBorder }]}>
-        <TouchableOpacity style={styles.audioBtnSmall} onPress={() => setCurrentAyah((p) => Math.max(0, p - 1))}>
-          <Text style={styles.audioBtnSmallText}>⏮</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.audioBtnMain, { backgroundColor: audioPlaying ? "#ef4444" : T.accent }]} onPress={() => setAudioPlaying((p) => !p)}>
-          <Text style={styles.audioBtnMainText}>{audioLoadingAyah ? "⏳" : audioPlaying ? "⏸" : "▶"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.audioBtnSmall} onPress={() => setCurrentAyah((p) => Math.min(FATIHA.length - 1, p + 1))}>
-          <Text style={styles.audioBtnSmallText}>⏭</Text>
-        </TouchableOpacity>
-        <View style={styles.audioProgressWrap}>
-          <Text style={styles.audioProgressLabel}>الآية {currentAyah + 1} من {FATIHA.length}</Text>
-          <View style={styles.audioProgressTrack}>
-            <View style={[styles.audioProgressFill, { backgroundColor: T.accent, width: `${((currentAyah + 1) / FATIHA.length) * 100}%` }]} />
-          </View>
-        </View>
-        <Text style={[styles.audioStatus, { color: audioPlaying ? T.accent : "#444" }]}>
-          {audioLoadingAyah ? "⏳ تحميل" : audioPlaying ? "🔊 يشتغل" : "⏸ موقوف"}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-// ─── TASBEEH SCREEN ───────────────────────────────────────────────────────────
-function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloatW, sendNotif }) {
+// ═══════════════════════════════════════════════════════════════════════════════
+//  شاشة المسبحة
+// ═══════════════════════════════════════════════════════════════════════════════
+function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloatW, sendNotif, totalLifetime }) {
   const ring = count % 100;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    Animated.timing(scaleAnim, { toValue: shake ? 0.93 : 1, duration: 150, useNativeDriver: true }).start();
+    Animated.spring(scaleAnim, { toValue: shake ? 0.92 : 1, useNativeDriver: true, friction: 3 }).start();
   }, [shake]);
-  const radius = 60, circumference = 2 * Math.PI * radius;
+  const C = 2 * Math.PI * 60;
+
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="📿 المسبحة الإلكترونية" T={T} />
-      <View style={styles.tasbeehCenter}>
-        <Text style={styles.tasbeehStage}>
-          {count < 33 ? "— سبحان الله —" : count < 66 ? "— الحمد لله —" : count < 100 ? "— الله أكبر —" : "🎉 اكتملت المئة!"}
+      <View style={ss.tasbeehCenter}>
+        <Text style={[ss.tasbeehStage, { color: T.accent }]}>
+          {count < 33 ? "— سُبْحَانَ اللَّهِ —" : count < 66 ? "— الحمد لله —" : count < 100 ? "— اللَّهُ أَكْبَرُ —" : "🎉 اكتملت المئة!"}
         </Text>
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <TouchableOpacity activeOpacity={0.9} onPress={onTap}
-            style={[styles.tasbeehBtn, { borderColor: flash ? T.accent : "#222", backgroundColor: flash ? T.accentSoft : "#090909" }]}>
-            <Text style={[styles.tasbeehCount, { color: flash ? T.accent : "#fff" }]}>{count}</Text>
-            <Text style={styles.tasbeehTapHint}>اضغط للعد</Text>
+            style={[ss.tasbeehBtn, { borderColor: flash ? T.accent : "#222", backgroundColor: flash ? T.accentSoft : "#090909", width: SW * 0.52, height: SW * 0.52, borderRadius: SW * 0.26 }]}>
+            <Text style={[ss.tasbeehCount, { color: flash ? T.accent : "#fff" }]}>{count}</Text>
+            <Text style={ss.tasbeehTapHint}>اضغط للعد</Text>
           </TouchableOpacity>
         </Animated.View>
-        <View style={styles.tasbeehRingWrap}>
-          <Svg width={140} height={140} viewBox="0 0 140 140">
-            <Circle cx={70} cy={70} r={radius} stroke="#111" strokeWidth={10} fill="none" />
-            <Circle cx={70} cy={70} r={radius} stroke={T.accent} strokeWidth={10} fill="none"
-              strokeDasharray={`${circumference}`} strokeDashoffset={`${circumference * (1 - ring / 100)}`}
-              strokeLinecap="round" rotation="-90" origin="70, 70" />
-            <SvgText x={70} y={78} textAnchor="middle" fill="#ccc" fontSize={15}>{ring}/100</SvgText>
-          </Svg>
-        </View>
-        <View style={styles.tasbeehActionsRow}>
+        {/* حلقة SVG */}
+        <Svg width={150} height={150} viewBox="0 0 150 150" style={{ marginTop: 18 }}>
+          <Circle cx={75} cy={75} r={60} stroke="#111" strokeWidth={10} fill="none" />
+          <Circle cx={75} cy={75} r={60} stroke={T.accent} strokeWidth={10} fill="none"
+            strokeDasharray={`${C}`} strokeDashoffset={`${C * (1 - ring / 100)}`}
+            strokeLinecap="round" rotation="-90" origin="75, 75" />
+          <SvgText x={75} y={80} textAnchor="middle" fill="#ccc" fontSize={13}>{ring}/100</SvgText>
+        </Svg>
+        {/* أزرار */}
+        <View style={ss.tasbeehActionsRow}>
           <Btn T={T} label="🔄 إعادة" onPress={onReset} />
-          <View style={[styles.tasbeehMilestone, { backgroundColor: count >= 33 ? T.accentSoft : "#0a0a0a", borderColor: count >= 33 ? T.accent : "#222" }]}>
-            <Text style={[styles.tasbeehMilestoneText, { color: count >= 33 ? T.accent : "#444" }]}>33 ✓</Text>
-          </View>
-          <View style={[styles.tasbeehMilestone, { backgroundColor: count >= 100 ? T.accentSoft : "#0a0a0a", borderColor: count >= 100 ? T.accent : "#222" }]}>
-            <Text style={[styles.tasbeehMilestoneText, { color: count >= 100 ? T.accent : "#444" }]}>100 ✓</Text>
-          </View>
+          {[33, 100].map((m) => (
+            <View key={m} style={[ss.tasbeehMilestone, { backgroundColor: count >= m ? T.accentSoft : "#0a0a0a", borderColor: count >= m ? T.accent : "#222" }]}>
+              <Text style={[ss.tasbeehMilestoneText, { color: count >= m ? T.accent : "#444" }]}>{m} {count >= m ? "✓" : ""}</Text>
+            </View>
+          ))}
         </View>
+        <Text style={[ss.tasbeehLifetime, { color: T.accent }]}>إجمالي عمرك: {totalLifetime.toLocaleString("ar-EG")} تسبيحة</Text>
       </View>
-      <Card T={T} title="خيارات">
-        <Toggle T={T} label="🫧 فقاعة التسبيح العائمة" sub="تظهر فوق جميع التطبيقات"
-          value={floatW} onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }} />
+
+      {/* تفعيل الفقاعة */}
+      <Card T={T} title="🫧 الفقاعة العائمة">
+        <Text style={{ color: "#888", fontSize: 12, marginBottom: 10, lineHeight: 20 }}>
+          تظهر الفقاعة فوق جميع التطبيقات وتبقى معك أينما ذهبت. يمكنك سحبها وإفلاتها في أي مكان على الشاشة.{"\n"}
+          ملاحظة: يتطلب صلاحية "الظهور فوق التطبيقات" في Android.
+        </Text>
+        <Toggle T={T} label="تفعيل فقاعة المسبحة" sub="تعوم فوق جميع التطبيقات وقابلة للسحب"
+          value={floatW}
+          onChange={(v) => {
+            setFloatW(v);
+            sendNotif(v ? "✅ الفقاعة مفعّلة — يمكنك سحبها لأي مكان" : "⏹ الفقاعة موقوفة");
+          }} />
       </Card>
     </ScrollView>
   );
 }
 
-// ─── QIBLA SCREEN ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  شاشة القبلة
+// ═══════════════════════════════════════════════════════════════════════════════
 function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, userLocation }) {
   const needleRotation = (compassAngle - qiblaAngle + 360) % 360;
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="🧭 اتجاه القبلة" sub={`مكة المكرمة — ${Math.round(qiblaAngle)}° من الشمال`} T={T} />
-      <View style={styles.qiblaWrap}>
-        <View style={[styles.qiblaCircle, { borderColor: isAligned ? "#22c55e" : "#222" }]}>
-          <Text style={[styles.qiblaDir, styles.qiblaDirN]}>N</Text>
-          <Text style={[styles.qiblaDir, styles.qiblaDirE]}>E</Text>
-          <Text style={[styles.qiblaDir, styles.qiblaDirS]}>S</Text>
-          <Text style={[styles.qiblaDir, styles.qiblaDirW]}>W</Text>
-          <View style={[styles.qiblaNeedleWrap, { transform: [{ rotate: `${needleRotation}deg` }] }]}>
-            <View style={styles.qiblaArrowUpWrap}>
-              <View style={[styles.qiblaArrowUp, { borderBottomColor: isAligned ? "#22c55e" : "#ef4444" }]} />
-            </View>
-            <View style={styles.qiblaArrowDownWrap}>
-              <View style={styles.qiblaArrowDown} />
-            </View>
+      <View style={ss.qiblaWrap}>
+        <View style={[ss.qiblaCircle, { borderColor: isAligned ? "#22c55e" : T.cardBorder }]}>
+          {["N","E","S","W"].map((d, i) => {
+            const pos = [{ top: 8, alignSelf: "center" }, { right: 8, top: "50%" }, { bottom: 8, alignSelf: "center" }, { left: 8, top: "50%" }];
+            return <Text key={d} style={[ss.qiblaDir, pos[i], { color: isAligned ? "#22c55e" : "#333" }]}>{d}</Text>;
+          })}
+          <View style={[ss.qiblaNeedleWrap, { transform: [{ rotate: `${needleRotation}deg` }] }]}>
+            <View style={[ss.qiblaArrowUp, { borderBottomColor: isAligned ? "#22c55e" : "#ef4444" }]} />
+            <View style={ss.qiblaArrowDown} />
           </View>
-          <Text style={styles.qiblaKaaba}>🕋</Text>
+          <Text style={ss.qiblaKaaba}>🕋</Text>
         </View>
-        <View style={styles.qiblaStatusWrap}>
-          {isAligned
-            ? <Text style={styles.qiblaAligned}>✅ أنت تواجه القبلة!</Text>
-            : <Text style={styles.qiblaNotAligned}>🔄 أدر الجهاز نحو القبلة</Text>}
-          <Text style={styles.qiblaAngle}>الزاوية الحالية: {Math.round(compassAngle)}° | القبلة: {Math.round(qiblaAngle)}°</Text>
-        </View>
+        <Text style={isAligned ? ss.qiblaAligned : ss.qiblaNotAligned}>
+          {isAligned ? "✅ أنت تواجه القبلة!" : "🔄 أدر الجهاز نحو القبلة"}
+        </Text>
+        <Text style={ss.qiblaAngle}>الزاوية الحالية: {Math.round(compassAngle)}° | القبلة: {Math.round(qiblaAngle)}°</Text>
         <Card T={T} title="📍 الموقع الحالي" style={{ marginTop: 20, width: "100%" }}>
-          <RI label="المدينة" value={locationCity || "جارٍ التحديد..."} />
-          <RI label="خط العرض" value={userLocation ? `${userLocation.latitude.toFixed(4)}°` : "—"} />
-          <RI label="خط الطول" value={userLocation ? `${userLocation.longitude.toFixed(4)}°` : "—"} />
+          <RI label="المدينة"    value={locationCity || "جارٍ التحديد..."} />
+          <RI label="خط العرض"  value={userLocation ? `${userLocation.latitude.toFixed(4)}°` : "—"} />
+          <RI label="خط الطول"  value={userLocation ? `${userLocation.longitude.toFixed(4)}°` : "—"} />
           <RI label="اتجاه القبلة" value={`${Math.round(qiblaAngle)}° شمالاً`} />
         </Card>
+        <View style={ss.sourceFooter}>
+          <Text style={ss.sourceText}>🧭 الحساب وفق مراجع الهيئة العامة للمساحة</Text>
+        </View>
       </View>
     </ScrollView>
   );
 }
 
-// ─── AZKAR SCREEN ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  شاشة الأذكار
+// ═══════════════════════════════════════════════════════════════════════════════
 function AzkarScreen({ T, azkarTab, setAzkarTab, morningC, setMorningC, eveningC, setEveningC, sleepC, setSleepC, travelC, setTravelC, homeC, setHomeC, sunnahC, setSunnahC, decrement }) {
   const TABS = [
-    { id: "morning", label: "الصباح", icon: "🌅" },
-    { id: "evening", label: "المساء", icon: "🌇" },
-    { id: "sleep", label: "النوم", icon: "🌙" },
-    { id: "home", label: "المنزل", icon: "🏠" },
-    { id: "travel", label: "السفر", icon: "✈️" },
-    { id: "sunnah", label: "السنن", icon: "✨" },
+    { id: "morning", label: "الصباح",  icon: "🌅" },
+    { id: "evening", label: "المساء",  icon: "🌇" },
+    { id: "sleep",   label: "النوم",   icon: "🌙" },
+    { id: "home",    label: "المنزل",  icon: "🏠" },
+    { id: "travel",  label: "السفر",   icon: "✈️" },
+    { id: "sunnah",  label: "السنن",   icon: "✨" },
   ];
   const dataMap = {
     morning: [MORNING_AZKAR, morningC, setMorningC],
     evening: [EVENING_AZKAR, eveningC, setEveningC],
-    sleep: [SLEEP_AZKAR, sleepC, setSleepC],
-    travel: [TRAVEL_AZKAR, travelC, setTravelC],
-    home: [HOME_AZKAR, homeC, setHomeC],
-    sunnah: [SUNNAH_LIST, sunnahC, setSunnahC],
+    sleep:   [SLEEP_AZKAR,   sleepC,   setSleepC  ],
+    travel:  [TRAVEL_AZKAR,  travelC,  setTravelC ],
+    home:    [HOME_AZKAR,    homeC,    setHomeC   ],
+    sunnah:  [SUNNAH_LIST,   sunnahC,  setSunnahC ],
   };
   const [data, counts, setCounts] = dataMap[azkarTab];
+
   return (
     <View style={{ flex: 1 }}>
       <SH title="🤲 الأذكار والسنن" T={T} />
-      <View style={[styles.azkarGridRow, { borderBottomColor: T.cardBorder }]}>
+      {/* تبويبات */}
+      <View style={[ss.azkarGridRow, { borderBottomColor: T.cardBorder }]}>
         {TABS.map((tab) => {
           const isActive = azkarTab === tab.id;
           return (
             <TouchableOpacity key={tab.id} onPress={() => setAzkarTab(tab.id)}
-              style={[styles.azkarGridBtn, { backgroundColor: isActive ? T.accentSoft : "#0a0a0a", borderColor: isActive ? T.accent : "#1a1a1a" }]}>
+              style={[ss.azkarGridBtn, { backgroundColor: isActive ? T.accentSoft : "#0a0a0a", borderColor: isActive ? T.accent : "#1a1a1a" }]}>
               <Text style={{ fontSize: 18 }}>{tab.icon}</Text>
-              <Text style={[styles.azkarGridText, { color: isActive ? T.accent : "#555", fontWeight: isActive ? "700" : "400" }]}>{tab.label}</Text>
+              <Text style={[ss.azkarGridText, { color: isActive ? T.accent : "#555", fontWeight: isActive ? "700" : "400" }]}>{tab.label}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
-      <ScrollView style={styles.azkarListWrap}>
+      <ScrollView style={ss.azkarListWrap}>
         {data.map((item, idx) =>
           counts[idx] > 0 ? (
-            <View key={idx} style={[styles.azkarCard, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-              <Text style={[styles.azkarCardLabel, { color: T.accent }]}>{item.label}</Text>
-              <Text style={styles.azkarCardText}>{item.text}</Text>
-              <View style={styles.azkarCardFooter}>
-                <TouchableOpacity style={[styles.azkarRecordBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+            <View key={idx} style={[ss.azkarCard, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
+              <Text style={[ss.azkarCardLabel, { color: T.accent }]}>{item.label}</Text>
+              <Text style={ss.azkarCardText}>{item.text}</Text>
+              <View style={ss.azkarCardFooter}>
+                <TouchableOpacity style={[ss.azkarRecordBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
                   onPress={() => decrement(counts, setCounts, idx)}>
-                  <Text style={[styles.azkarRecordBtnText, { color: T.accent }]}>تسجيل ({counts[idx]})</Text>
+                  <Text style={[ss.azkarRecordBtnText, { color: T.accent }]}>تسجيل ({counts[idx]})</Text>
                 </TouchableOpacity>
-                <View style={styles.azkarCounterCircle}>
-                  <Text style={[styles.azkarCounterText, { color: T.accent }]}>{counts[idx]}</Text>
+                <View style={[ss.azkarCounterCircle, { backgroundColor: T.ayahNumBg }]}>
+                  <Text style={[ss.azkarCounterText, { color: T.accent }]}>{counts[idx]}</Text>
                 </View>
               </View>
             </View>
           ) : (
-            <View key={idx} style={[styles.azkarCard, styles.azkarCardDone, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-              <Text style={[styles.azkarCardLabel, { color: T.accent }]}>{item.label}</Text>
-              <Text style={styles.azkarDoneText}>✅ اكتمل</Text>
+            <View key={idx} style={[ss.azkarCard, ss.azkarCardDone, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
+              <Text style={[ss.azkarCardLabel, { color: T.accent }]}>{item.label}</Text>
+              <Text style={ss.azkarDoneText}>✅ اكتمل</Text>
             </View>
           )
         )}
@@ -1281,61 +889,52 @@ function AzkarScreen({ T, azkarTab, setAzkarTab, morningC, setMorningC, eveningC
   );
 }
 
-// ─── STATS SCREEN ─────────────────────────────────────────────────────────────
-function StatsScreen({ T, streakDays, tasbeehCount }) {
-  const maxMins = Math.max(...WEEKLY_STATS.map((d) => d.mins));
+// ═══════════════════════════════════════════════════════════════════════════════
+//  شاشة الإحصاء
+// ═══════════════════════════════════════════════════════════════════════════════
+function StatsScreen({ T, weeklyStats, streak, tasbeehTotal }) {
+  const maxMins = Math.max(...weeklyStats.map((d) => d.mins), 1);
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="📊 إحصاءات القراءة" sub="هذا الأسبوع" T={T} />
-      <View style={styles.statsGrid}>
+      <View style={ss.statsGrid}>
         {[
-          { icon: "⏱️", val: "3.2", unit: "ساعة", label: "إجمالي القراءة", color: T.accent },
-          { icon: "📖", val: "152", unit: "آية", label: "آيات مقروءة", color: "#3b82f6" },
-          { icon: "🔥", val: String(streakDays), unit: "أيام", label: "أيام متتالية", color: "#f59e0b" },
-          { icon: "📿", val: String(tasbeehCount), unit: "تسبيحة", label: "إجمالي التسبيح", color: "#8b5cf6" },
+          { icon: "⏱️", val: (weeklyStats.reduce((s,d)=>s+d.mins,0)/60).toFixed(1), unit: "ساعة",   label: "إجمالي القراءة",  color: T.accent    },
+          { icon: "📖", val: weeklyStats.reduce((s,d)=>s+d.ayahs,0),                unit: "آية",    label: "آيات مقروءة",     color: "#3b82f6"   },
+          { icon: "🔥", val: streak,                                                 unit: "أيام",   label: "أيام متتالية",    color: "#f59e0b"   },
+          { icon: "📿", val: tasbeehTotal.toLocaleString("ar-EG"),                   unit: "",       label: "إجمالي التسبيح",  color: "#8b5cf6"   },
         ].map((s) => (
-          <View key={s.label} style={[styles.statBox, { borderColor: `${s.color}33` }]}>
-            <Text style={styles.statIcon}>{s.icon}</Text>
-            <Text style={[styles.statVal, { color: s.color }]}>{s.val}</Text>
-            <Text style={[styles.statUnit, { color: s.color }]}>{s.unit}</Text>
-            <Text style={styles.statLabel}>{s.label}</Text>
+          <View key={s.label} style={[ss.statBox, { borderColor: `${s.color}33` }]}>
+            <Text style={ss.statIcon}>{s.icon}</Text>
+            <Text style={[ss.statVal, { color: s.color }]}>{s.val}</Text>
+            {s.unit ? <Text style={[ss.statUnit, { color: s.color }]}>{s.unit}</Text> : null}
+            <Text style={ss.statLabel}>{s.label}</Text>
           </View>
         ))}
       </View>
       <Card T={T} title="دقائق القراءة اليومية">
-        <View style={styles.barsRow}>
-          {WEEKLY_STATS.map((d, i) => (
-            <View key={i} style={styles.barCol}>
-              <Text style={[styles.barVal, { color: T.accent }]}>{d.mins}</Text>
-              <View style={[styles.barFill, { height: (d.mins / maxMins) * 82, backgroundColor: T.accentSoft, borderTopColor: T.accent }]} />
-              <Text style={styles.barDay}>{d.day.slice(0, 3)}</Text>
-            </View>
-          ))}
-        </View>
-      </Card>
-      <Card T={T} title="آيات مقروءة يومياً">
-        <View style={[styles.barsRow, { height: 80 }]}>
-          {WEEKLY_STATS.map((d, i) => (
-            <View key={i} style={styles.barCol}>
-              <Text style={[styles.barVal, { color: "#3b82f6" }]}>{d.ayahs}</Text>
-              <View style={[styles.barFill, { height: (d.ayahs / 50) * 66, backgroundColor: "#3b82f61a", borderTopColor: "#3b82f6" }]} />
-              <Text style={styles.barDay}>{d.day.slice(0, 3)}</Text>
+        <View style={ss.barsRow}>
+          {weeklyStats.map((d, i) => (
+            <View key={i} style={ss.barCol}>
+              <Text style={[ss.barVal, { color: T.accent }]}>{d.mins}</Text>
+              <View style={[ss.barFill, { height: (d.mins / maxMins) * 82, backgroundColor: T.accentSoft, borderTopColor: T.accent }]} />
+              <Text style={ss.barDay}>{d.day.slice(0, 3)}</Text>
             </View>
           ))}
         </View>
       </Card>
       <Card T={T} title="🏆 الإنجازات">
         {[
-          { icon: "🌟", label: "حافظ الفاتحة", done: true, desc: "قرأت سورة الفاتحة كاملة" },
-          { icon: "📿", label: "100 تسبيحة في يوم", done: tasbeehCount >= 100, desc: "سبّحت 100 مرة في يوم واحد" },
-          { icon: "🔥", label: "7 أيام متتالية", done: streakDays >= 7, desc: "استخدمت التطبيق 7 أيام متتالية" },
-          { icon: "📖", label: "ختمة كاملة", done: false, desc: "اقرأ القرآن كاملاً" },
-          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false, desc: "أكمل أذكار النوم 30 يوماً" },
+          { icon: "🌟", label: "حافظ الفاتحة",       done: true,          desc: "قرأت سورة الفاتحة كاملة"         },
+          { icon: "📿", label: "100 تسبيحة في يوم",  done: tasbeehTotal>=100, desc: "سبّحت 100 مرة في يوم واحد"   },
+          { icon: "🔥", label: "7 أيام متتالية",      done: streak >= 7,   desc: "استخدمت التطبيق 7 أيام متتالية" },
+          { icon: "📖", label: "ختمة كاملة",          done: false,         desc: "اقرأ القرآن كاملاً"              },
+          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false,        desc: "أكمل أذكار النوم 30 يوماً"       },
         ].map((a, i) => (
-          <View key={i} style={[styles.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }]}>
+          <View key={i} style={[ss.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111" }]}>
             <Text style={{ fontSize: 26 }}>{a.icon}</Text>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.achievementLabel, { color: a.done ? "#e2e8f0" : "#444", fontWeight: "700" }]}>{a.label}</Text>
+              <Text style={[ss.achievementLabel, { color: a.done ? "#e2e8f0" : "#444" }]}>{a.label}</Text>
               <Text style={{ color: a.done ? "#22c55e88" : "#333", fontSize: 11, marginTop: 2 }}>{a.desc}</Text>
             </View>
             <Text style={{ fontSize: 22 }}>{a.done ? "✅" : "🔒"}</Text>
@@ -1346,300 +945,924 @@ function StatsScreen({ T, streakDays, tasbeehCount }) {
   );
 }
 
-// ─── SETTINGS SCREEN ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+//  شاشة الإعدادات
+// ═══════════════════════════════════════════════════════════════════════════════
 function SettingsScreen({
-  T, azanOn, setAzanOn, salahOn, setSalahOn, salahInt, setSalahInt,
+  T, adFree, masterPromo, setMasterPromo, masterMsg, handleMasterPromo,
+  azanOn, setAzanOn, salahOn, setSalahOn, salahInt, setSalahInt,
   preOn, setPreOn, autoAzkar, setAutoAzkar, travelOn, setTravelOn,
   fastOn, setFastOn, fastMT, setFastMT, fastWD, setFastWD,
-  activeThemeId, onSelectTheme, sendNotif,
+  activeThemeId, unlockedIds, onSelect, onBuy,
+  sendNotif, mamaMode,
 }) {
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="⚙️ الإعدادات" T={T} />
 
-      {/* Theme selector — كل الثيمات مجانية */}
-      <Card T={T} title="🎨 الثيمات">
+      {/* متجر الثيمات */}
+      <Card T={T} title="🎨 متجر الثيمات">
         {THEMES.map((th) => {
+          const owned  = unlockedIds.includes(th.id);
           const active = activeThemeId === th.id;
           return (
-            <View key={th.id} style={styles.themeRow}>
-              <LinearGradient colors={th.grad} style={styles.themeEmojiBox}>
-                <Text style={styles.themeEmoji}>{th.emoji}</Text>
+            <View key={th.id} style={ss.themeRow}>
+              <LinearGradient colors={th.grad} style={ss.themeEmojiBox}>
+                <Text style={ss.themeEmoji}>{th.emoji}</Text>
               </LinearGradient>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.themeName}>{th.name}</Text>
-                <Text style={styles.themeDesc}>{th.desc}</Text>
+              <View style={{ flex: 1, marginHorizontal: 10 }}>
+                <Text style={ss.themeName}>{th.name}</Text>
+                <Text style={ss.themeDesc}>{th.desc}</Text>
               </View>
-              <TouchableOpacity
-                style={[styles.themeActionBtn, { backgroundColor: active ? th.accentSoft : "#111", borderColor: active ? th.accent : "#222" }]}
-                onPress={() => onSelectTheme(th.id)}
-              >
-                <Text style={[styles.themeActionText, { color: active ? th.accent : "#666", fontWeight: active ? "700" : "400" }]}>
-                  {active ? "✅ مفعّل" : "تطبيق"}
-                </Text>
-              </TouchableOpacity>
+              {owned ? (
+                <TouchableOpacity
+                  style={[ss.themeActionBtn, { backgroundColor: active ? th.accentSoft : "#111", borderColor: active ? th.accent : "#222" }]}
+                  onPress={() => onSelect(th.id)}>
+                  <Text style={[ss.themeActionText, { color: active ? th.accent : "#666", fontWeight: active ? "700" : "400" }]}>
+                    {active ? "✅ مفعّل" : "تطبيق"}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[ss.themeActionBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+                  onPress={() => onBuy(th.id)}>
+                  <Text style={[ss.themeActionText, { color: T.accent, fontWeight: "700" }]}>{th.price} 🔒</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         })}
       </Card>
 
-      {/* Azan & alerts */}
-      <Card T={T} title="🔊 الأذان والتنبيهات">
-        <Toggle T={T} label="📡 أذان الصلوات الخمس" sub="صوت الأذان عند وقت كل صلاة" value={azanOn} onChange={setAzanOn} />
-        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ" sub="تنبيه صوتي دوري" value={salahOn} onChange={setSalahOn} />
+      {/* كود ترويجي */}
+      <Card T={T} title="🎁 كود ترويجي">
+        <View style={ss.promoRow}>
+          <TextInput style={[ss.promoInput, { borderColor: T.cardBorder }]}
+            placeholder="أدخل الكود..." placeholderTextColor="#555"
+            textAlign="right" value={masterPromo} onChangeText={setMasterPromo} />
+          <TouchableOpacity style={[ss.promoBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+            onPress={handleMasterPromo}>
+            <Text style={[ss.promoBtnText, { color: T.accent }]}>تفعيل</Text>
+          </TouchableOpacity>
+        </View>
+        {masterMsg ? <Text style={[ss.promoMsg, { color: masterMsg.startsWith("❌") ? "#ef4444" : masterMsg.startsWith("❤️") ? "#ec4899" : "#22c55e" }]}>{masterMsg}</Text> : null}
+        {adFree ? <Text style={ss.promoAdFree}>✅ وضع بدون إعلانات مفعّل</Text> : null}
+      </Card>
+
+      {/* الأذان والتنبيهات */}
+      <Card T={T} title="🔊 الأذان والتنبيهات الصوتية">
+        <Toggle T={T} label="📡 أذان الصلوات الخمس" sub="صوت الأذان عند وقت كل صلاة"   value={azanOn}   onChange={setAzanOn}   />
+        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ"  sub="تنبيه صوتي دوري"            value={salahOn}  onChange={setSalahOn}  />
         {salahOn && (
-          <View style={styles.salahIntWrap}>
-            <Text style={styles.salahIntLabel}>كل كم دقيقة؟</Text>
-            <View style={styles.salahIntRow}>
+          <View style={ss.salahIntWrap}>
+            <Text style={ss.salahIntLabel}>كل كم دقيقة؟</Text>
+            <View style={ss.salahIntRow}>
               {[15, 30, 60].map((v) => (
                 <TouchableOpacity key={v}
-                  style={[styles.salahIntBtn, { backgroundColor: salahInt === v ? T.accentSoft : "#111", borderColor: salahInt === v ? T.accent : "#222" }]}
+                  style={[ss.salahIntBtn, { backgroundColor: salahInt === v ? T.accentSoft : "#111", borderColor: salahInt === v ? T.accent : "#222" }]}
                   onPress={() => setSalahInt(v)}>
-                  <Text style={[styles.salahIntBtnText, { color: salahInt === v ? T.accent : "#555" }]}>{v} دقيقة</Text>
+                  <Text style={[ss.salahIntBtnText, { color: salahInt === v ? T.accent : "#555" }]}>{v} دقيقة</Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
         )}
-        <Toggle T={T} label="⏰ تنبيه قبل الصلاة" sub="تحذير 15 دقيقة قبل كل أذان" value={preOn} onChange={setPreOn} />
-        <Toggle T={T} label="🤲 أذكار تلقائية" sub="صباح 7:00 ومغرب كل يوم" value={autoAzkar} onChange={setAutoAzkar} />
-        <Toggle T={T} label="🚗 مُذكِّر السفر" sub="تشغيل تلقائي عند التنقل" value={travelOn} onChange={setTravelOn} />
+        <Toggle T={T} label="⏰ تنبيه قبل الصلاة"      sub="تحذير 15 دقيقة قبل كل أذان" value={preOn}    onChange={setPreOn}    />
+        <Toggle T={T} label="🤲 أذكار تلقائية"          sub="صباح 7:00 ومغرب كل يوم"     value={autoAzkar} onChange={setAutoAzkar} />
+        <Toggle T={T} label="🚗 مُذكِّر السفر الذكي"    sub="تفعيل تلقائي عند السفر"      value={travelOn} onChange={setTravelOn} />
       </Card>
 
-      {/* Fasting */}
+      {/* الصيام */}
       <Card T={T} title="🌙 صيام النوافل والأيام البيض">
         <Toggle T={T} label="تفعيل تذكير الصيام" value={fastOn} onChange={setFastOn} />
-        {fastOn && (
-          <>
-            <Toggle T={T} label="الإثنين والخميس" sub="تذكير أسبوعي بصيام السنة" value={fastMT} onChange={setFastMT} />
-            <Toggle T={T} label="الأيام البيض 13، 14، 15" sub="تذكير شهري قمري" value={fastWD} onChange={setFastWD} />
-          </>
-        )}
+        {fastOn && <>
+          <Toggle T={T} label="الإثنين والخميس"      sub="تذكير أسبوعي بصيام السنة" value={fastMT} onChange={setFastMT} />
+          <Toggle T={T} label="الأيام البيض 13، 14، 15" sub="تذكير شهري قمري"       value={fastWD} onChange={setFastWD} />
+        </>}
       </Card>
 
-      {/* App info */}
+      {/* عن التطبيق */}
       <Card T={T} title="ℹ️ عن التطبيق">
-        <RI label="الإصدار" value="1.0.0" />
-        <RI label="المطور" value="فريق مُصلِّي" />
-        <RI label="البيانات القرآنية" value="محققة ومعتمدة 100%" />
-        <RI label="مواقيت الصلاة" value="Aladhan API — طريقة الهيئة المصرية" />
+        <RI label="الإصدار"         value="4.0.0" />
+        <RI label="المطور"          value="فريق مُصلِّي" />
+        <RI label="البيانات القرآنية" value="Tanzil.net — محققة 100%" />
+        <RI label="مواقيت الصلاة"   value="Aladhan API" />
+        <RI label="اتجاه القبلة"    value="الهيئة العامة للمساحة" />
       </Card>
+
+      {/* توثيق المصادر */}
+      <View style={[ss.sourceFooter, { marginHorizontal: 16 }]}>
+        <Text style={[ss.sourceText, { fontSize: 10, lineHeight: 18 }]}>
+          📖 بيانات القرآن الكريم مُرخَّصة من Tanzil.net بموجب CC BY-ND 3.0{"\n"}
+          🕌 مواقيت الصلاة: api.aladhan.com — مجاني وغير رسمي{"\n"}
+          🧭 حسابات القبلة استناداً إلى مراجع الهيئة العامة للمساحة المملكة العربية السعودية
+        </Text>
+      </View>
+
+      {mamaMode && (
+        <View style={ss.mamaBadge}>
+          <Text style={ss.mamaText}>❤️ حبيني وادعيلي ❤️</Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
 
-// ─── STYLES ───────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  appRoot: { flex: 1, width: "100%", maxWidth: 480, alignSelf: "center" },
-  screensWrap: { flex: 1, paddingBottom: 80 },
+// ═══════════════════════════════════════════════════════════════════════════════
+//  التطبيق الجذر
+// ═══════════════════════════════════════════════════════════════════════════════
+export default function App() {
+  // ── الشاشات والتنقل ──
+  const [screen,    setScreen]    = useState("splash");
+  const [activeTab, setActiveTab] = useState("home");
 
-  splashWrap: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
-  splashGlow: { position: "absolute", width: 320, height: 320, borderRadius: 160, backgroundColor: "#22c55e1a", top: "28%" },
-  splashEmoji: { fontSize: 72, marginBottom: 4 },
-  splashTitle: { color: "#fff", fontSize: 46, fontWeight: "900", letterSpacing: 3 },
-  splashSub: { color: "#666", fontSize: 15, marginTop: 6 },
-  splashBarTrack: { width: 140, height: 3, backgroundColor: "#111", borderRadius: 2, marginTop: 44, overflow: "hidden" },
+  // ── إعدادات القرآن ──
+  const [fontSize,       setFontSize]       = useState(26);
+  const [bookmark,       setBookmark]       = useState(null);
+  const [searchQuery,    setSearchQuery]    = useState("");
+  const [wordPopup,      setWordPopup]      = useState(null);
+  const [longModal,      setLongModal]      = useState(null);
+  const [audioPlaying,   setAudioPlaying]   = useState(false);
+  const [currentAyah,    setCurrentAyah]    = useState(0);
+  const [audioLoadingAyah, setAudioLoadingAyah] = useState(false);
+
+  // ── التسبيح ──
+  const [tasbeehCount,   setTasbeehCount]   = useState(0);
+  const [tasbeehTotal,   setTasbeehTotal]   = useState(0);
+  const [tShake,         setTShake]         = useState(false);
+  const [tFlash,         setTFlash]         = useState(false);
+  const [floatW,         setFloatW]         = useState(false);
+
+  // ── الأذكار ──
+  const [azkarTab,  setAzkarTab]  = useState("morning");
+  const [morningC,  setMorningC]  = useState(MORNING_AZKAR.map(a => a.count));
+  const [eveningC,  setEveningC]  = useState(EVENING_AZKAR.map(a => a.count));
+  const [sleepC,    setSleepC]    = useState(SLEEP_AZKAR.map(a => a.count));
+  const [travelC,   setTravelC]   = useState(TRAVEL_AZKAR.map(a => a.count));
+  const [homeC,     setHomeC]     = useState(HOME_AZKAR.map(a => a.count));
+  const [sunnahC,   setSunnahC]   = useState(SUNNAH_LIST.map(a => a.count));
+
+  // ── الموقع والصلاة والقبلة ──
+  const [userLocation,    setUserLocation]    = useState(null);
+  const [locationCity,    setLocationCity]    = useState("جارٍ التحديد...");
+  const [livePrayerTimes, setLivePrayerTimes] = useState(null);
+  const [prayerLoading,   setPrayerLoading]   = useState(false);
+  const [qiblaAngle,      setQiblaAngle]      = useState(143);
+  const [liveCompassAngle,setLiveCompassAngle]= useState(0);
+  const [countdown,       setCountdown]       = useState({ label: "العصر", hours: 1, mins: 37 });
+  const [azanTriggered,   setAzanTriggered]   = useState({});
+
+  // ── الإعدادات ──
+  const [azanOn,    setAzanOn]    = useState(true);
+  const [salahOn,   setSalahOn]   = useState(true);
+  const [salahInt,  setSalahInt]  = useState(30);
+  const [preOn,     setPreOn]     = useState(true);
+  const [autoAzkar, setAutoAzkar] = useState(true);
+  const [travelOn,  setTravelOn]  = useState(false);
+  const [fastOn,    setFastOn]    = useState(false);
+  const [fastMT,    setFastMT]    = useState(true);
+  const [fastWD,    setFastWD]    = useState(false);
+
+  // ── الثيم والشراء ──
+  const [activeThemeId, setActiveThemeId] = useState("spiritual_green");
+  const [unlockedIds,   setUnlockedIds]   = useState(["royal_black", "spiritual_green"]);
+  const [purchaseModal, setPurchaseModal] = useState(null);
+  const [promoInputs,   setPromoInputs]   = useState({});
+  const [masterPromo,   setMasterPromo]   = useState("");
+  const [masterMsg,     setMasterMsg]     = useState("");
+  const [adFree,        setAdFree]        = useState(false);
+  const [mamaMode,      setMamaMode]      = useState(false);
+
+  // ── الإحصاء ──
+  const [streak,      setStreak]      = useState(1);
+  const [weeklyStats, setWeeklyStats] = useState(WEEKLY_STATS_INIT);
+
+  // ── إشعارات ──
+  const [notifMsg, setNotifMsg] = useState("");
+  const [dhikrIdx, setDhikrIdx] = useState(0);
+
+  const soundRef    = useRef(null);
+  const azanRef     = useRef(null);
+  const salahTimer  = useRef(null);
+
+  const T       = useMemo(() => getTheme(activeThemeId), [activeThemeId]);
+  const hijri   = useMemo(() => getHijriDate(), []);
+  const greg    = useMemo(() => getGregorianDate(), []);
+  const fastAlert = useMemo(() => getSpecialFastingAlert(hijri), []);
+
+  const displayedPrayerTimes = livePrayerTimes || FALLBACK_PRAYER_TIMES;
+
+  // ── تحميل البيانات المحفوظة ──────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const [theme, unlocked, adF, str, bkmk, ttl] = await Promise.all([
+          AsyncStorage.getItem(KEYS.THEME),
+          AsyncStorage.getItem(KEYS.UNLOCKED),
+          AsyncStorage.getItem(KEYS.AD_FREE),
+          AsyncStorage.getItem(KEYS.STREAK),
+          AsyncStorage.getItem(KEYS.BOOKMARK),
+          AsyncStorage.getItem(KEYS.TASBEEH_TOTAL),
+        ]);
+        if (theme)    setActiveThemeId(theme);
+        if (unlocked) setUnlockedIds(JSON.parse(unlocked));
+        if (adF === "1") setAdFree(true);
+        if (str)      setStreak(parseInt(str, 10) || 1);
+        if (bkmk)     setBookmark(parseInt(bkmk, 10));
+        if (ttl)      setTasbeehTotal(parseInt(ttl, 10) || 0);
+      } catch { /* صامت */ }
+    })();
+  }, []);
+
+  // ── تحديث الأيام المتتالية ────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const today    = getTodayString();
+        const lastOpen = await AsyncStorage.getItem(KEYS.LAST_OPEN);
+        if (!lastOpen) {
+          await AsyncStorage.setItem(KEYS.LAST_OPEN, today);
+          await AsyncStorage.setItem(KEYS.STREAK, "1");
+          setStreak(1);
+          return;
+        }
+        const diff = Math.round((new Date(today) - new Date(lastOpen)) / 86400000);
+        const saved = parseInt(await AsyncStorage.getItem(KEYS.STREAK) || "1", 10);
+        let newStreak = diff === 1 ? saved + 1 : diff === 0 ? saved : 1;
+        await AsyncStorage.setItem(KEYS.LAST_OPEN, today);
+        await AsyncStorage.setItem(KEYS.STREAK, String(newStreak));
+        setStreak(newStreak);
+      } catch { /* صامت */ }
+    })();
+  }, []);
+
+  // ── Splash ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => setScreen("ad"), 1800);
+    return () => clearTimeout(t);
+  }, []);
+
+  // ── جلسة الصوت ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true, shouldDuckAndroid: true }).catch(() => {});
+  }, []);
+
+  // ── GPS وجلب المواقيت ─────────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          setLocationCity("القاهرة، مصر");
+          await fetchPrayerTimes(30.0444, 31.2357);
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced, timeout: 10000 });
+        const { latitude, longitude } = loc.coords;
+        setUserLocation({ latitude, longitude });
+        try {
+          const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
+          if (rev?.[0]) {
+            const r = rev[0];
+            setLocationCity(`${r.city || r.subregion || r.region || ""}، ${r.country || ""}`);
+          }
+        } catch { setLocationCity("موقعك الحالي"); }
+        setQiblaAngle(calcQiblaAngle(latitude, longitude));
+        await fetchPrayerTimes(latitude, longitude);
+      } catch {
+        setLocationCity("القاهرة، مصر");
+        await fetchPrayerTimes(30.0444, 31.2357);
+      }
+    })();
+  }, []);
+
+  const fetchPrayerTimes = useCallback(async (lat, lng) => {
+    setPrayerLoading(true);
+    try {
+      const d = new Date();
+      const url = `https://api.aladhan.com/v1/timings/${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}?latitude=${lat}&longitude=${lng}&method=5`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const json = await res.json();
+      if (json.code === 200 && json.data?.timings) {
+        const t = json.data.timings;
+        setLivePrayerTimes([
+          { name: "الفجر",   time: t.Fajr,    key: "Fajr"    },
+          { name: "الشروق",  time: t.Sunrise,  key: "Sunrise" },
+          { name: "الظهر",   time: t.Dhuhr,   key: "Dhuhr"   },
+          { name: "العصر",   time: t.Asr,     key: "Asr"     },
+          { name: "المغرب",  time: t.Maghrib, key: "Maghrib" },
+          { name: "العشاء",  time: t.Isha,    key: "Isha"    },
+        ]);
+      }
+    } catch { /* أوفلاين: استخدام المواقيت الاحتياطية */ }
+    finally { setPrayerLoading(false); }
+  }, []);
+
+  // ── حساب العداد التنازلي (ساعات ودقائق فقط — لا ثواني) ──────────────────
+  const computeCountdown = useCallback((times) => {
+    if (!times?.length) return null;
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    let next = null;
+    for (const p of times) {
+      const pm = parseTimeMins(p.time);
+      if (pm > nowMins) { next = { label: p.name, diffMins: pm - nowMins }; break; }
+    }
+    if (!next) {
+      const pm = parseTimeMins(times[0].time);
+      next = { label: times[0].name, diffMins: 1440 - nowMins + pm };
+    }
+    const totalMins = Math.max(0, Math.round(next.diffMins));
+    return { label: next.label, hours: Math.floor(totalMins / 60), mins: totalMins % 60 };
+  }, []);
+
+  useEffect(() => {
+    const tick = () => { const r = computeCountdown(displayedPrayerTimes); if (r) setCountdown(r); };
+    tick();
+    const t = setInterval(tick, 60000); // كل دقيقة كافٍ — لا ثواني
+    return () => clearInterval(t);
+  }, [livePrayerTimes, computeCountdown]);
+
+  // ── محاكاة البوصلة (الجهاز الحقيقي يستخدم expo-sensors/Magnetometer) ────
+  useEffect(() => {
+    const t = setInterval(() => setLiveCompassAngle(p => (p + 1.5) % 360), 80);
+    return () => clearInterval(t);
+  }, []);
+
+  const effectiveCompass = liveCompassAngle;
+  const isAligned = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
+
+  // ── تشغيل صوت القرآن ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!audioPlaying) { soundRef.current?.stopAsync().catch(() => {}); return; }
+    let cancelled = false;
+    const playAyah = async (idx) => {
+      if (cancelled || idx >= FATIHA.length) { setAudioPlaying(false); setCurrentAyah(0); return; }
+      setCurrentAyah(idx); setAudioLoadingAyah(true);
+      try {
+        await soundRef.current?.unloadAsync();
+        const { sound } = await Audio.Sound.createAsync({ uri: AUDIO.fatiha[idx] }, { shouldPlay: true, volume: 1 });
+        soundRef.current = sound;
+        setAudioLoadingAyah(false);
+        sound.setOnPlaybackStatusUpdate((s) => { if (s.didJustFinish && !cancelled) playAyah(idx + 1); });
+      } catch {
+        setAudioLoadingAyah(false);
+        if (!cancelled) setTimeout(() => { if (!cancelled) playAyah(idx + 1); }, 3000);
+      }
+    };
+    playAyah(currentAyah);
+    return () => { cancelled = true; soundRef.current?.stopAsync().catch(() => {}); };
+  }, [audioPlaying]);
+
+  // ── تفعيل الأذان ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!azanOn || !livePrayerTimes) return;
+    const interval = setInterval(() => {
+      const now = new Date();
+      const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      livePrayerTimes.forEach((p) => {
+        const ts = (p.time || "").substring(0, 5);
+        if (ts === nowStr && !azanTriggered[ts]) {
+          setAzanTriggered(prev => ({ ...prev, [ts]: true }));
+          (async () => {
+            try {
+              await azanRef.current?.unloadAsync();
+              const { sound } = await Audio.Sound.createAsync({ uri: AUDIO.azan }, { shouldPlay: true, volume: 1 });
+              azanRef.current = sound;
+              sendNotif(`🕌 أذان ${p.name}`);
+            } catch { sendNotif(`🕌 حان وقت أذان ${p.name}`); }
+          })();
+        }
+      });
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [azanOn, livePrayerTimes, azanTriggered]);
+
+  // ── دوران بانر الذكر ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (fastAlert) return;
+    const t = setInterval(() => setDhikrIdx(p => (p + 1) % DHIKR_PHRASES.length), 4000);
+    return () => clearInterval(t);
+  }, [fastAlert]);
+
+  // ── تنظيف الصوت عند الإغلاق ──────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync().catch(() => {});
+      azanRef.current?.unloadAsync().catch(() => {});
+    };
+  }, []);
+
+  // ── زر الرجوع (Android) ───────────────────────────────────────────────────
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (activeTab !== "home") { setActiveTab("home"); return true; }
+      return false;
+    });
+    return () => sub.remove();
+  }, [activeTab]);
+
+  // ── حفظ الإشارة المرجعية ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (bookmark !== null) AsyncStorage.setItem(KEYS.BOOKMARK, String(bookmark)).catch(() => {});
+  }, [bookmark]);
+
+  const sendNotif = useCallback((msg) => {
+    setNotifMsg(msg);
+    setTimeout(() => setNotifMsg(""), 3500);
+  }, []);
+
+  const handleTasbeeh = useCallback(() => {
+    const n = tasbeehCount + 1;
+    const newTotal = tasbeehTotal + 1;
+    setTasbeehCount(n);
+    setTasbeehTotal(newTotal);
+    setTShake(true);
+    setTimeout(() => setTShake(false), 300);
+    if (n === 33 || n === 100) { setTFlash(true); setTimeout(() => setTFlash(false), 1000); }
+    AsyncStorage.setItem(KEYS.TASBEEH_TOTAL, String(newTotal)).catch(() => {});
+  }, [tasbeehCount, tasbeehTotal]);
+
+  const handleWordPress = useCallback((w) => { setWordPopup(w); setTimeout(() => setWordPopup(null), 2200); }, []);
+  const handleWordLong  = useCallback((w) => setLongModal(w), []);
+
+  const decrement = useCallback((arr, setArr, idx) => {
+    const next = [...arr];
+    if (next[idx] > 0) next[idx]--;
+    setArr(next);
+  }, []);
+
+  // ── الثيمات والشراء ───────────────────────────────────────────────────────
+  const selectTheme = useCallback((id) => {
+    setActiveThemeId(id);
+    AsyncStorage.setItem(KEYS.THEME, id).catch(() => {});
+    sendNotif("✅ تم تطبيق " + getTheme(id).name);
+  }, [sendNotif]);
+
+  const onPurchaseSuccess = useCallback((id) => {
+    const newUnlocked = [...new Set([...unlockedIds, id])];
+    if (id === "vip_royal") {
+      const all = THEMES.map(t => t.id);
+      setUnlockedIds(all);
+      setAdFree(true);
+      AsyncStorage.setItem(KEYS.AD_FREE, "1").catch(() => {});
+      AsyncStorage.setItem(KEYS.UNLOCKED, JSON.stringify(all)).catch(() => {});
+    } else {
+      setUnlockedIds(newUnlocked);
+      AsyncStorage.setItem(KEYS.UNLOCKED, JSON.stringify(newUnlocked)).catch(() => {});
+    }
+    setActiveThemeId(id);
+    AsyncStorage.setItem(KEYS.THEME, id).catch(() => {});
+    sendNotif("✅ تم فتح " + getTheme(id).name + "!");
+  }, [unlockedIds, sendNotif]);
+
+  const setPromoCode = useCallback((id, val) => {
+    setPromoInputs(p => ({ ...p, [id]: { ...p[id], code: val, msg: "" } }));
+  }, []);
+
+  const submitPromo = useCallback((id) => {
+    const code = (promoInputs[id]?.code || "").trim().toLowerCase();
+    const valid = { royal_gold: "gold2025", sufi_purple: "purple2025", vip_royal: "vip2025" };
+    if (code === valid[id]) {
+      onPurchaseSuccess(id);
+      setPurchaseModal(null);
+      sendNotif("🎁 " + getTheme(id).name + " مفتوح!");
+    } else {
+      setPromoInputs(p => ({ ...p, [id]: { ...p[id], msg: "❌ الكود غير صحيح" } }));
+    }
+  }, [promoInputs, onPurchaseSuccess, sendNotif]);
+
+  const handleMasterPromo = useCallback(async () => {
+    const code = masterPromo.trim();
+    if (!code) { setMasterMsg("❌ الكود فارغ"); return; }
+    const h = await hashCode(code);
+    if (h === MAMA_HASH) {
+      setAdFree(true); setMamaMode(true);
+      const all = THEMES.map(t => t.id);
+      setUnlockedIds(all);
+      setActiveThemeId("vip_royal");
+      AsyncStorage.multiSet([[KEYS.AD_FREE,"1"],[KEYS.THEME,"vip_royal"],[KEYS.UNLOCKED,JSON.stringify(all)]]).catch(()=>{});
+      setMasterMsg("❤️ تم تفعيل كل المميزات بالكامل!");
+      return;
+    }
+    if (code.toLowerCase() === "friend2025") {
+      setAdFree(true);
+      AsyncStorage.setItem(KEYS.AD_FREE, "1").catch(()=>{});
+      setMasterMsg("✅ تم إزالة الإعلانات!");
+    } else { setMasterMsg("❌ الكود غير صحيح"); }
+  }, [masterPromo]);
+
+  // ─── شاشة السبلاش ────────────────────────────────────────────────────────
+  if (screen === "splash") {
+    return (
+      <View style={ss.splashWrap}>
+        <View style={ss.splashGlow} />
+        <Text style={ss.splashEmoji}>☪️</Text>
+        <Text style={ss.splashTitle}>مُصلِّي</Text>
+        <Text style={ss.splashSub}>مساعدك القرآني الذكي</Text>
+        <View style={ss.splashBarTrack}><View style={ss.splashBarFill} /></View>
+      </View>
+    );
+  }
+
+  // ─── شاشة الإعلان ────────────────────────────────────────────────────────
+  if (screen === "ad") {
+    return (
+      <View style={ss.adWrap}>
+        <View style={ss.adBadge}><Text style={ss.adBadgeText}>إعلان</Text></View>
+        <Text style={ss.adEmoji}>📖</Text>
+        <Text style={ss.adTitle}>تعلّم القرآن الكريم</Text>
+        <Text style={ss.adSub}>أفضل تطبيق للحفظ والتلاوة والأذكار</Text>
+        <TouchableOpacity style={ss.adSkip} onPress={() => setScreen("home")}>
+          <Text style={ss.adSkipText}>تخطي ✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ─── شريط التنقل ─────────────────────────────────────────────────────────
+  const NAV_TABS = [
+    { id: "home",     icon: "🏠", label: "الرئيسية" },
+    { id: "quran",    icon: "📖", label: "القرآن"   },
+    { id: "tasbeeh",  icon: "📿", label: "التسبيح"  },
+    { id: "qibla",    icon: "🧭", label: "القبلة"   },
+    { id: "azkar",    icon: "🤲", label: "الأذكار"  },
+    { id: "stats",    icon: "📊", label: "الإحصاء"  },
+    { id: "settings", icon: "⚙️", label: "الإعدادات"},
+  ];
+
+  return (
+    <View style={[ss.appRoot, { backgroundColor: T.bg }]}>
+      {/* الفقاعة العائمة */}
+      {floatW && (
+        <FloatingBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} onClose={() => setFloatW(false)} />
+      )}
+
+      {/* إشعار Toast */}
+      {notifMsg ? (
+        <View style={[ss.toast, { borderColor: T.accentBorder }]}>
+          <Text style={ss.toastText}>{notifMsg}</Text>
+        </View>
+      ) : null}
+
+      {/* لافتة الكلمة */}
+      {wordPopup ? (
+        <View style={[ss.wordPopup, { borderColor: T.accentBorder }]}>
+          <Text style={[ss.wordPopupText, { color: T.accent }]}>{wordPopup}</Text>
+          <Text style={ss.wordPopupSub}>🔊 اضغط مطولاً للتفسير الكامل</Text>
+        </View>
+      ) : null}
+
+      {/* مودال الشراء */}
+      <PurchaseModal
+        T={T} themeId={purchaseModal}
+        onClose={() => setPurchaseModal(null)}
+        onPurchaseSuccess={onPurchaseSuccess}
+        promoInputs={promoInputs}
+        setPromoCode={setPromoCode}
+        submitPromo={submitPromo}
+      />
+
+      {/* شاشات المحتوى */}
+      <View style={ss.screensWrap}>
+        {activeTab === "home" && (
+          <HomeScreen T={T} bookmark={bookmark} sendNotif={sendNotif} setActiveTab={setActiveTab}
+            dhikrIdx={dhikrIdx} fastAlert={fastAlert} hijri={hijri} greg={greg}
+            countdown={countdown} prayerTimes={displayedPrayerTimes}
+            locationCity={locationCity} prayerLoading={prayerLoading} streak={streak} />
+        )}
+        {activeTab === "quran" && (
+          <QuranScreen T={T} fontSize={fontSize} setFontSize={setFontSize}
+            searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+            currentAyah={currentAyah} setCurrentAyah={setCurrentAyah}
+            audioPlaying={audioPlaying} setAudioPlaying={setAudioPlaying}
+            bookmark={bookmark} setBookmark={setBookmark}
+            onWordPress={handleWordPress} onWordLong={handleWordLong}
+            audioLoadingAyah={audioLoadingAyah}
+            wordPopup={wordPopup} longModal={longModal} setLongModal={setLongModal} />
+        )}
+        {activeTab === "tasbeeh" && (
+          <TasbeehScreen T={T} count={tasbeehCount} onTap={handleTasbeeh}
+            onReset={() => setTasbeehCount(0)}
+            shake={tShake} flash={tFlash} floatW={floatW} setFloatW={setFloatW}
+            sendNotif={sendNotif} totalLifetime={tasbeehTotal} />
+        )}
+        {activeTab === "qibla" && (
+          <QiblaScreen T={T} compassAngle={effectiveCompass} isAligned={isAligned}
+            qiblaAngle={qiblaAngle} locationCity={locationCity} userLocation={userLocation} />
+        )}
+        {activeTab === "azkar" && (
+          <AzkarScreen T={T} azkarTab={azkarTab} setAzkarTab={setAzkarTab}
+            morningC={morningC} setMorningC={setMorningC}
+            eveningC={eveningC} setEveningC={setEveningC}
+            sleepC={sleepC}    setSleepC={setSleepC}
+            travelC={travelC}  setTravelC={setTravelC}
+            homeC={homeC}      setHomeC={setHomeC}
+            sunnahC={sunnahC}  setSunnahC={setSunnahC}
+            decrement={decrement} />
+        )}
+        {activeTab === "stats" && (
+          <StatsScreen T={T} weeklyStats={weeklyStats} streak={streak} tasbeehTotal={tasbeehTotal} />
+        )}
+        {activeTab === "settings" && (
+          <SettingsScreen T={T} adFree={adFree}
+            masterPromo={masterPromo} setMasterPromo={setMasterPromo}
+            masterMsg={masterMsg} handleMasterPromo={handleMasterPromo}
+            azanOn={azanOn} setAzanOn={setAzanOn}
+            salahOn={salahOn} setSalahOn={setSalahOn}
+            salahInt={salahInt} setSalahInt={setSalahInt}
+            preOn={preOn} setPreOn={setPreOn}
+            autoAzkar={autoAzkar} setAutoAzkar={setAutoAzkar}
+            travelOn={travelOn} setTravelOn={setTravelOn}
+            fastOn={fastOn} setFastOn={setFastOn}
+            fastMT={fastMT} setFastMT={setFastMT}
+            fastWD={fastWD} setFastWD={setFastWD}
+            activeThemeId={activeThemeId} unlockedIds={unlockedIds}
+            onSelect={selectTheme} onBuy={setPurchaseModal}
+            sendNotif={sendNotif} mamaMode={mamaMode} />
+        )}
+      </View>
+
+      {/* إعلان أسفل الشاشة */}
+      {!adFree && activeTab !== "quran" && (
+        <View style={ss.bottomAd}>
+          <Text style={ss.bottomAdText}>إعلان دعائي 📢</Text>
+        </View>
+      )}
+
+      {/* شريط التنقل السفلي */}
+      <View style={[ss.bottomNav, { borderTopColor: T.cardBorder, backgroundColor: "#070707" }]}>
+        <View style={ss.bottomNavContent}>
+          {NAV_TABS.map((t) => {
+            const isActive = activeTab === t.id;
+            return (
+              <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={ss.navTabBtn} activeOpacity={0.7}>
+                <View style={[ss.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: T.accentBorder }]}>
+                  <Text style={[ss.navTabIcon, { opacity: isActive ? 1 : 0.4 }]}>{t.icon}</Text>
+                </View>
+                <Text style={[ss.navTabLabel, { color: isActive ? T.accent : "#3a3a3a", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  الأنماط
+// ═══════════════════════════════════════════════════════════════════════════════
+const ss = StyleSheet.create({
+  // ── جذر ──
+  appRoot:       { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center" },
+  screensWrap:   { flex: 1, paddingBottom: 82 },
+
+  // ── سبلاش ──
+  splashWrap:    { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
+  splashGlow:    { position: "absolute", width: 300, height: 300, borderRadius: 150, backgroundColor: "#22c55e18", top: "28%" },
+  splashEmoji:   { fontSize: 72, marginBottom: 4 },
+  splashTitle:   { color: "#fff", fontSize: 46, fontWeight: "900", letterSpacing: 3 },
+  splashSub:     { color: "#666", fontSize: 15, marginTop: 6 },
+  splashBarTrack:{ width: 140, height: 3, backgroundColor: "#111", borderRadius: 2, marginTop: 44, overflow: "hidden" },
   splashBarFill: { height: "100%", width: "70%", backgroundColor: "#22c55e" },
 
-  toast: { position: "absolute", top: 16, alignSelf: "center", minWidth: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
-  toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
+  // ── إعلان ──
+  adWrap:        { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
+  adBadge:       { position: "absolute", top: 16, left: 16, backgroundColor: "#1a1a1a", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
+  adBadgeText:   { color: "#666", fontSize: 11 },
+  adEmoji:       { fontSize: 56, marginBottom: 14 },
+  adTitle:       { color: "#fff", fontSize: 26, fontWeight: "800" },
+  adSub:         { color: "#666", fontSize: 14, marginTop: 8, textAlign: "center", maxWidth: 260 },
+  adSkip:        { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
+  adSkipText:    { color: "#ccc", fontSize: 13 },
 
-  floatWidget: { position: "absolute", top: 120, right: 14, width: 76, height: 76, borderRadius: 38, borderWidth: 2, zIndex: 500, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 10 },
-  floatWidgetLabel: { fontSize: 10, marginTop: 1 },
-  floatWidgetEmoji: { fontSize: 22 },
-  floatWidgetCount: { fontSize: 18, fontWeight: "900" },
+  // ── Toast ──
+  toast:         { position: "absolute", top: 16, alignSelf: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 10, zIndex: 1500 },
+  toastText:     { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
 
-  wordPopup: { position: "absolute", top: "28%", alignSelf: "center", width: 210, backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 20, alignItems: "center", zIndex: 800 },
-  wordPopupText: { color: "#f0e6d3", fontSize: 32, marginBottom: 12 },
-  soundWaveRow: { flexDirection: "row", alignItems: "center", gap: 3, height: 36, marginBottom: 8 },
-  soundWaveBar: { width: 3, borderRadius: 2 },
-  wordPopupSub: { color: "#666", fontSize: 12 },
+  // ── الفقاعة العائمة ──
+  floatBubble:   { position: "absolute", width: 84, height: 84, borderRadius: 42, borderWidth: 2, zIndex: 900, backgroundColor: "#0a0a0a", alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.7, shadowRadius: 12, elevation: 12 },
+  floatBubbleEmoji:{ fontSize: 26 },
+  floatBubbleCount:{ fontSize: 20, fontWeight: "900" },
+  floatBubbleClose:{ position: "absolute", top: -2, right: -2, width: 18, height: 18, borderRadius: 9, backgroundColor: "#222", alignItems: "center", justifyContent: "center" },
 
-  modalOverlay: { flex: 1, backgroundColor: "#000000aa", alignItems: "center", justifyContent: "center" },
-  longModalBox: { backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 22, padding: 22, maxWidth: 340, width: "90%", maxHeight: "80%" },
-  longModalWord: { color: "#f0e6d3", fontSize: 32, textAlign: "center", marginBottom: 14 },
-  longModalDivider: { borderBottomWidth: 1, borderBottomColor: "#111", marginVertical: 10 },
-  longModalNoData: { color: "#666", fontSize: 13, textAlign: "center" },
-  longModalFontLabel: { color: "#e2e8f0", fontSize: 13, marginBottom: 8 },
-  longModalFontRow: { flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  longModalFontVal: { fontSize: 14, minWidth: 40, textAlign: "center" },
-  longModalHint: { color: "#888", fontSize: 12, lineHeight: 19 },
-  longModalClose: { width: "100%", marginTop: 14, borderRadius: 12, paddingVertical: 10, alignItems: "center" },
-  longModalCloseText: { color: "#000", fontSize: 14, fontWeight: "700" },
+  // ── لافتة الكلمة ──
+  wordPopup:     { position: "absolute", top: "28%", alignSelf: "center", backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 18, alignItems: "center", zIndex: 800, maxWidth: 220 },
+  wordPopupText: { fontSize: 32, marginBottom: 8 },
+  wordPopupSub:  { color: "#666", fontSize: 12 },
 
-  shWrap: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 12, borderBottomWidth: 1 },
-  shTitle: { color: "#fff", fontSize: 20, fontWeight: "800" },
-  shSub: { color: "#555", fontSize: 12, marginTop: 3 },
-  card: { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12 },
-  cardTitle: { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginBottom: 12 },
+  // ── مشترك ──
+  shWrap:        { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 12, borderBottomWidth: 1 },
+  shTitle:       { color: "#fff", fontSize: 20, fontWeight: "800" },
+  shSub:         { color: "#555", fontSize: 12, marginTop: 3 },
+  card:          { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 10 },
+  cardTitle:     { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginBottom: 12 },
+  pbarRow:       { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
+  pbarLabel:     { color: "#888", fontSize: 12 },
+  pbarPct:       { fontSize: 12, fontWeight: "700" },
+  pbarTrack:     { height: 5, backgroundColor: "#111", borderRadius: 3 },
+  pbarFill:      { height: "100%", borderRadius: 3 },
+  riRow:         { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  riLabel:       { color: "#555", fontSize: 12 },
+  riValue:       { color: "#e2e8f0", fontSize: 13, fontWeight: "600" },
+  toggleRow:     { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  toggleLabel:   { color: "#e2e8f0", fontSize: 13 },
+  toggleSub:     { color: "#555", fontSize: 11, marginTop: 2 },
+  toggleTrack:   { width: 44, height: 24, borderRadius: 12, justifyContent: "center" },
+  toggleThumb:   { position: "absolute", top: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: "#fff" },
+  btn:           { borderWidth: 1, borderRadius: 20 },
+  btnText:       { fontWeight: "600" },
 
-  pbarRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  pbarLabel: { color: "#888", fontSize: 12 },
-  pbarPct: { fontSize: 12, fontWeight: "700" },
-  pbarTrack: { height: 5, backgroundColor: "#111", borderRadius: 3 },
-  pbarFill: { height: "100%", borderRadius: 3 },
-
-  riRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  riLabel: { color: "#555", fontSize: 12 },
-  riValue: { color: "#e2e8f0", fontSize: 13, fontWeight: "600" },
-
-  toggleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  toggleLabel: { color: "#e2e8f0", fontSize: 13 },
-  toggleSub: { color: "#555", fontSize: 11, marginTop: 2 },
-  toggleTrack: { width: 44, height: 24, borderRadius: 12, justifyContent: "center" },
-  toggleThumb: { position: "absolute", top: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: "#fff" },
-
-  btn: { borderWidth: 1, borderRadius: 20 },
-  btnText: { fontWeight: "600" },
-
-  homeHeader: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
-  homeHeaderGreg: { color: "#555", fontSize: 11, marginBottom: 2 },
+  // ── الرئيسية ──
+  homeHeader:    { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
+  homeHeaderGreg:{ color: "#555", fontSize: 11, marginBottom: 2 },
   homeHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  homeHeaderTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  homeHeaderHijri: { fontSize: 12 },
+  homeHeaderTitle:{ color: "#fff", fontSize: 22, fontWeight: "900" },
+  homeHeaderHijri:{ fontSize: 12 },
   homeHeaderCity: { fontSize: 11, marginTop: 3 },
-  streakBadge: { fontSize: 12, marginTop: 4, fontWeight: "700" },
-
-  dhikrBanner: { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
+  streakBadge:   { alignSelf: "flex-start", borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 4, marginTop: 6 },
+  streakText:    { fontSize: 12, fontWeight: "700" },
+  dhikrBanner:   { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
   fastAlertText: { color: "#f59e0b", fontSize: 13, fontWeight: "700", lineHeight: 19 },
-  dhikrText: { fontSize: 14, opacity: 0.85, textAlign: "center" },
-
-  countdownRow: { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 },
-  countdownLabel: { color: "#666", fontSize: 12 },
-  countdownVal: { fontSize: 22, fontWeight: "900", letterSpacing: 1 },
-
-  prayerStrip: { paddingVertical: 10, borderBottomWidth: 1 },
-  prayerChip: { alignItems: "center", gap: 2, minWidth: 60, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 4 },
-  prayerChipName: { fontSize: 12, color: "#e2e8f0" },
-  prayerChipTime: { fontSize: 13, fontWeight: "700" },
-
-  bookmarkCard: { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dhikrText:     { fontSize: 14, opacity: 0.85, textAlign: "center" },
+  countdownRow:  { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 },
+  countdownLabel:{ color: "#666", fontSize: 12 },
+  countdownVal:  { fontSize: 28, fontWeight: "900", letterSpacing: 2, writingDirection: "ltr" },
+  countdownHint: { color: "#444", fontSize: 10 },
+  prayerStrip:   { paddingVertical: 10, borderBottomWidth: 1 },
+  prayerChip:    { alignItems: "center", gap: 2, minWidth: 58, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 4 },
+  prayerChipName:{ fontSize: 11, color: "#e2e8f0" },
+  prayerChipTime:{ fontSize: 13, fontWeight: "700" },
+  bookmarkCard:  { borderWidth: 1, borderRadius: 16, padding: 14, marginHorizontal: 16, marginVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   bookmarkLabel: { color: "#666", fontSize: 11 },
   bookmarkValue: { color: "#e2e8f0", fontSize: 14, fontWeight: "700" },
-  bookmarkBtn: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  bookmarkBtnText: { color: "#000", fontSize: 13, fontWeight: "800" },
+  bookmarkBtn:   { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  bookmarkBtnText:{ color: "#000", fontSize: 13, fontWeight: "800" },
+  homeGrid:      { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 16, paddingVertical: 10 },
+  homeGridCard:  { width: (SW - 52) / 2, borderWidth: 1, borderRadius: 18, paddingVertical: 20, paddingHorizontal: 10, alignItems: "center", gap: 6 },
+  homeGridIcon:  { fontSize: 32 },
+  homeGridLabel: { fontSize: 13, color: "#e2e8f0", fontWeight: "700", textAlign: "center" },
+  homeGridSub:   { fontSize: 10, color: "#555", textAlign: "center" },
+  nextPrayerSub: { color: "#666", fontSize: 13, marginBottom: 8 },
+  nextPrayerBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, alignSelf: "flex-start" },
+  nextPrayerBtnText:{ fontSize: 12, fontWeight: "700" },
+  sourceFooter:  { paddingHorizontal: 16, paddingVertical: 10, marginBottom: 10 },
+  sourceText:    { color: "#333", fontSize: 11, textAlign: "center", lineHeight: 18 },
 
-  homeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  homeGridCard: { width: "47%", borderWidth: 1, borderRadius: 18, paddingVertical: 20, paddingHorizontal: 12, alignItems: "center", gap: 7 },
-  homeGridIcon: { fontSize: 34 },
-  homeGridLabel: { fontSize: 14, color: "#e2e8f0", fontWeight: "700" },
-  homeGridSub: { fontSize: 11, color: "#555" },
-
-  nextPrayerSub: { color: "#666", fontSize: 13 },
-  nextPrayerBtn: { marginTop: 10, borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8, alignSelf: "flex-start" },
-  nextPrayerBtnText: { fontSize: 13, fontWeight: "700" },
-
-  quranHeader: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
-  quranHeaderTitle: { color: "#fff", fontSize: 21, fontWeight: "800" },
-  quranHeaderSub: { color: "#555", fontSize: 12 },
-  quranSearchRow: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  // ── القرآن ──
+  quranHeader:   { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
+  quranHeaderTitle:{ color: "#fff", fontSize: 21, fontWeight: "800" },
+  quranHeaderSub:  { color: "#555", fontSize: 12 },
+  quranSearchRow:  { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 8, paddingHorizontal: 14, paddingVertical: 7 },
   quranSearchIcon: { color: "#555", fontSize: 15 },
-  quranSearchInput: { flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
-  quranSearchClear: { color: "#555", fontSize: 14 },
-  quranBookmarkRow: { alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 },
-  quranBookmarkBtn: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6 },
-  quranBookmarkBtnText: { color: "#e2e8f0", fontSize: 12 },
-  quranBookmarkSaved: { fontSize: 12, textAlign: "center", marginBottom: 6 },
-
-  ayahsBox: { backgroundColor: "#030303", borderWidth: 1, borderRadius: 18, marginHorizontal: 16, marginBottom: 12, padding: 16 },
-  basmalah: { textAlign: "center", color: "#f59e0b", fontSize: 14, marginBottom: 16, letterSpacing: 3 },
-  ayahRow: { position: "relative", flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: "#0d0d0d", borderRadius: 8 },
-  ribbonWrap: { position: "absolute", top: -2, right: -4, width: 18, height: 36, zIndex: 2 },
-  ribbonBody: { width: 18, height: 30, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
-  ribbonTriangle: { width: 0, height: 0, borderLeftWidth: 9, borderRightWidth: 9, borderTopWidth: 8, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#030303" },
-  ayahNumCircle: { minWidth: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 6 },
-  ayahNumText: { fontSize: 12 },
-  ayahWordsWrap: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
-  ayahWord: { color: "#f0e6d3", paddingHorizontal: 5, paddingVertical: 2, lineHeight: 48 },
-  ayahHint: { textAlign: "center", color: "#333", fontSize: 11, marginTop: 14 },
-
-  audioPlayer: { backgroundColor: "#050505", borderTopWidth: 1, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  audioBtnSmall: { backgroundColor: "#111", borderWidth: 1, borderColor: "#222", width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  audioBtnSmallText: { color: "#ccc", fontSize: 15 },
-  audioBtnMain: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
-  audioBtnMainText: { color: "#000", fontSize: 20, fontWeight: "800" },
-  audioProgressWrap: { flex: 1, marginRight: 8 },
-  audioProgressLabel: { color: "#888", fontSize: 11, marginBottom: 4 },
-  audioProgressTrack: { height: 4, backgroundColor: "#1a1a1a", borderRadius: 2 },
+  quranSearchInput:{ flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
+  quranSearchClear:{ color: "#555", fontSize: 14 },
+  fontSizeRow:     { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, marginBottom: 4 },
+  fontBtn:         { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
+  fontBtnText:     { fontSize: 13, fontWeight: "700" },
+  fontSizeVal:     { fontSize: 13, minWidth: 38, textAlign: "center" },
+  bookmarkInline:  { flex: 1, borderWidth: 1, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5, alignItems: "center" },
+  bookmarkInlineText:{ fontSize: 11 },
+  ayahsBox:        { borderWidth: 1, borderRadius: 16, marginHorizontal: 14, marginBottom: 12, padding: 14 },
+  basmalah:        { textAlign: "center", fontSize: 14, marginBottom: 14, letterSpacing: 2 },
+  ayahRow:         { position: "relative", flexDirection: "row", gap: 8, alignItems: "flex-start", paddingVertical: 10, paddingHorizontal: 2, borderBottomWidth: 1, borderBottomColor: "#0d0d0d", borderRadius: 8 },
+  bookmarkRibbon:  { position: "absolute", top: 0, right: 0, width: 4, height: "100%", borderRadius: 2 },
+  ayahNumCircle:   { minWidth: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", marginTop: 8 },
+  ayahNumText:     { fontSize: 11 },
+  ayahWordsWrap:   { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 2 },
+  ayahWord:        { color: "#f0e6d3", paddingHorizontal: 4, paddingVertical: 2, lineHeight: 48 },
+  ayahHint:        { textAlign: "center", color: "#333", fontSize: 11, marginTop: 12 },
+  audioPlayer:     { borderTopWidth: 1, borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 8 },
+  audioBtnSmall:   { backgroundColor: "#111", borderWidth: 1, borderColor: "#222", width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  audioBtnSmallText:{ color: "#ccc", fontSize: 14 },
+  audioBtnMain:    { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  audioBtnMainText:{ color: "#000", fontSize: 18, fontWeight: "800" },
+  audioProgressWrap:{ flex: 1 },
+  audioProgressLabel:{ color: "#888", fontSize: 10, marginBottom: 3 },
+  audioProgressTrack:{ height: 4, backgroundColor: "#1a1a1a", borderRadius: 2 },
   audioProgressFill: { height: "100%", borderRadius: 2 },
-  audioStatus: { fontSize: 10 },
+  audioStatus:     { fontSize: 10 },
+  modalOverlay:    { flex: 1, backgroundColor: "#000000bb", alignItems: "center", justifyContent: "center" },
+  longModalBox:    { backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 20, padding: 20, maxWidth: 340, width: "90%", maxHeight: "80%" },
+  longModalWord:   { fontSize: 30, textAlign: "center", marginBottom: 12 },
+  longModalDivider:{ borderBottomWidth: 1, borderBottomColor: "#111", marginVertical: 10 },
+  longModalNoData: { color: "#666", fontSize: 13, textAlign: "center" },
+  longModalHint:   { color: "#888", fontSize: 12, lineHeight: 19 },
+  longModalClose:  { width: "100%", marginTop: 14, borderRadius: 12, paddingVertical: 10, alignItems: "center" },
+  longModalCloseText:{ color: "#000", fontSize: 14, fontWeight: "700" },
 
-  tasbeehCenter: { alignItems: "center", paddingVertical: 24 },
-  tasbeehStage: { color: "#555", fontSize: 14, marginBottom: 20 },
-  tasbeehBtn: { width: 186, height: 186, borderRadius: 93, borderWidth: 3, alignItems: "center", justifyContent: "center" },
-  tasbeehCount: { fontSize: 58, fontWeight: "900" },
-  tasbeehTapHint: { fontSize: 12, color: "#444", marginTop: 4 },
-  tasbeehRingWrap: { marginTop: 22, alignItems: "center" },
-  tasbeehActionsRow: { flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 14, flexWrap: "wrap" },
-  tasbeehMilestone: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  tasbeehMilestoneText: { fontSize: 12 },
+  // ── المسبحة ──
+  tasbeehCenter: { alignItems: "center", paddingVertical: 22 },
+  tasbeehStage:  { fontSize: 14, marginBottom: 18, fontWeight: "700" },
+  tasbeehBtn:    { borderWidth: 3, alignItems: "center", justifyContent: "center" },
+  tasbeehCount:  { fontSize: 56, fontWeight: "900" },
+  tasbeehTapHint:{ fontSize: 12, color: "#444", marginTop: 4 },
+  tasbeehActionsRow:{ flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 14, flexWrap: "wrap" },
+  tasbeehMilestone: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  tasbeehMilestoneText:{ fontSize: 12 },
+  tasbeehLifetime:{ fontSize: 12, marginTop: 14 },
 
-  qiblaWrap: { alignItems: "center", paddingVertical: 28, paddingHorizontal: 16 },
-  qiblaCircle: { width: 240, height: 240, borderRadius: 120, borderWidth: 4, backgroundColor: "#050505", alignItems: "center", justifyContent: "center", position: "relative" },
-  qiblaDir: { position: "absolute", color: "#333", fontSize: 12, fontWeight: "700" },
-  qiblaDirN: { top: 10, left: "50%", marginLeft: -6 },
-  qiblaDirE: { right: 10, top: "50%", marginTop: -8 },
-  qiblaDirS: { bottom: 10, left: "50%", marginLeft: -6 },
-  qiblaDirW: { left: 10, top: "50%", marginTop: -8 },
-  qiblaNeedleWrap: { position: "absolute", width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
-  qiblaArrowUpWrap: { position: "absolute", top: 18, alignItems: "center" },
-  qiblaArrowUp: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent" },
-  qiblaArrowDownWrap: { position: "absolute", bottom: 18, alignItems: "center" },
-  qiblaArrowDown: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#333" },
-  qiblaKaaba: { fontSize: 38, zIndex: 2 },
-  qiblaStatusWrap: { marginTop: 26, alignItems: "center" },
-  qiblaAligned: { color: "#22c55e", fontSize: 20, fontWeight: "800" },
-  qiblaNotAligned: { color: "#ef4444", fontSize: 16 },
-  qiblaAngle: { color: "#444", fontSize: 13, marginTop: 8, textAlign: "center" },
+  // ── القبلة ──
+  qiblaWrap:     { alignItems: "center", paddingVertical: 24, paddingHorizontal: 16 },
+  qiblaCircle:   { width: 240, height: 240, borderRadius: 120, borderWidth: 4, backgroundColor: "#050505", alignItems: "center", justifyContent: "center", position: "relative" },
+  qiblaDir:      { position: "absolute", fontSize: 11, fontWeight: "700" },
+  qiblaNeedleWrap:{ position: "absolute", width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
+  qiblaArrowUp:  { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 68, borderLeftColor: "transparent", borderRightColor: "transparent", marginBottom: 4 },
+  qiblaArrowDown:{ width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 68, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#333" },
+  qiblaKaaba:    { fontSize: 36, zIndex: 2 },
+  qiblaAligned:  { color: "#22c55e", fontSize: 18, fontWeight: "800", marginTop: 20 },
+  qiblaNotAligned:{ color: "#ef4444", fontSize: 15, marginTop: 20 },
+  qiblaAngle:    { color: "#444", fontSize: 12, marginTop: 8, textAlign: "center" },
 
-  azkarGridRow: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
-  azkarGridBtn: { width: "30%", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 10, gap: 4 },
+  // ── الأذكار ──
+  azkarGridRow:  { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 10, paddingVertical: 8, gap: 6, borderBottomWidth: 1 },
+  azkarGridBtn:  { width: "30%", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 12, paddingVertical: 8, gap: 3 },
   azkarGridText: { fontSize: 11 },
-  azkarListWrap: { flex: 1, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 80 },
-  azkarCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  azkarListWrap: { flex: 1, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 80 },
+  azkarCard:     { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   azkarCardDone: { opacity: 0.35 },
-  azkarCardLabel: { fontSize: 11, marginBottom: 8, fontWeight: "700" },
-  azkarCardText: { color: "#e2e8f0", fontSize: 16, lineHeight: 30 },
-  azkarCardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
-  azkarRecordBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
-  azkarRecordBtnText: { fontSize: 12 },
-  azkarCounterCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#111", alignItems: "center", justifyContent: "center" },
-  azkarCounterText: { fontSize: 13, fontWeight: "700" },
+  azkarCardLabel:{ fontSize: 11, marginBottom: 6, fontWeight: "700" },
+  azkarCardText: { color: "#e2e8f0", fontSize: 15, lineHeight: 28 },
+  azkarCardFooter:{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
+  azkarRecordBtn:{ borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
+  azkarRecordBtnText:{ fontSize: 12 },
+  azkarCounterCircle:{ width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  azkarCounterText:{ fontSize: 13, fontWeight: "700" },
   azkarDoneText: { color: "#22c55e", fontSize: 12, marginTop: 4 },
 
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
-  statBox: { width: "47%", backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 14, padding: 14, alignItems: "center" },
-  statIcon: { fontSize: 22 },
-  statVal: { fontSize: 24, fontWeight: "900" },
-  statUnit: { fontSize: 10 },
-  statLabel: { fontSize: 11, color: "#555", marginTop: 2, textAlign: "center" },
-  barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, height: 100 },
-  barCol: { flex: 1, alignItems: "center", gap: 3 },
-  barVal: { fontSize: 9 },
-  barFill: { width: "100%", borderRadius: 3, borderTopWidth: 2 },
-  barDay: { fontSize: 9, color: "#444" },
-  achievementLabel: { flex: 1, fontSize: 13 },
+  // ── الإحصاء ──
+  statsGrid:     { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 14, paddingVertical: 10 },
+  statBox:       { width: (SW - 48) / 2, backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 14, padding: 14, alignItems: "center" },
+  statIcon:      { fontSize: 22 },
+  statVal:       { fontSize: 22, fontWeight: "900" },
+  statUnit:      { fontSize: 10 },
+  statLabel:     { fontSize: 11, color: "#555", marginTop: 2, textAlign: "center" },
+  barsRow:       { flexDirection: "row", alignItems: "flex-end", gap: 4, height: 100 },
+  barCol:        { flex: 1, alignItems: "center", gap: 2 },
+  barVal:        { fontSize: 8 },
+  barFill:       { width: "100%", borderRadius: 3, borderTopWidth: 2 },
+  barDay:        { fontSize: 8, color: "#444" },
+  achievementRow:{ flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 },
+  achievementLabel:{ fontSize: 13, fontWeight: "700" },
 
-  themeRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  themeEmojiBox: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  themeEmoji: { fontSize: 20 },
-  themeName: { color: "#e2e8f0", fontSize: 13, fontWeight: "700" },
-  themeDesc: { color: "#555", fontSize: 11, marginTop: 1 },
-  themeActionBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
-  themeActionText: { fontSize: 11 },
-
-  salahIntWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  // ── الإعدادات ──
+  themeRow:      { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  themeEmojiBox: { width: 40, height: 40, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  themeEmoji:    { fontSize: 18 },
+  themeName:     { color: "#e2e8f0", fontSize: 13, fontWeight: "700" },
+  themeDesc:     { color: "#555", fontSize: 10, marginTop: 1 },
+  themeActionBtn:{ borderWidth: 1, borderRadius: 18, paddingHorizontal: 10, paddingVertical: 5 },
+  themeActionText:{ fontSize: 11 },
+  promoRow:      { flexDirection: "row", gap: 8 },
+  promoInput:    { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
+  promoBtn:      { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, justifyContent: "center" },
+  promoBtnText:  { fontSize: 13, fontWeight: "700" },
+  promoMsg:      { fontSize: 12, marginTop: 8 },
+  promoAdFree:   { color: "#22c55e", fontSize: 12, marginTop: 8 },
+  salahIntWrap:  { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
   salahIntLabel: { color: "#888", fontSize: 12, marginBottom: 8 },
-  salahIntRow: { flexDirection: "row", gap: 8 },
-  salahIntBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
-  salahIntBtnText: { fontSize: 12 },
+  salahIntRow:   { flexDirection: "row", gap: 8 },
+  salahIntBtn:   { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
+  salahIntBtnText:{ fontSize: 11 },
+  mamaBadge:     { alignItems: "center", padding: 16 },
+  mamaText:      { color: "#ff2d5f", fontSize: 15, fontWeight: "700" },
 
-  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 10, paddingBottom: Platform.OS === "ios" ? 28 : 14 },
-  bottomNavContent: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 4 },
-  navTabBtn: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
-  navTabIconWrap: { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
-  navTabIcon: { fontSize: 18 },
-  navTabLabel: { fontSize: 9, marginTop: 1, letterSpacing: 0.2 },
+  // ── مودال الشراء ──
+  purchaseOverlay:   { flex: 1, backgroundColor: "#000000cc", justifyContent: "flex-end" },
+  purchaseSheet:     { backgroundColor: "#0d0d0d", borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40, maxHeight: "88%" },
+  purchaseHandle:    { width: 40, height: 4, backgroundColor: "#333", borderRadius: 2, alignSelf: "center", marginBottom: 18 },
+  purchaseHeaderRow: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  purchaseEmojiBox:  { width: 52, height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  purchaseEmoji:     { fontSize: 24 },
+  purchaseName:      { color: "#fff", fontSize: 15, fontWeight: "800" },
+  purchaseSubName:   { color: "#666", fontSize: 11, marginTop: 2 },
+  purchasePriceBadge:{ borderWidth: 1, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 18 },
+  purchasePriceText: { fontSize: 13, fontWeight: "800" },
+  purchaseDesc:      { color: "#888", fontSize: 12, marginBottom: 16, lineHeight: 20 },
+  vipBox:            { backgroundColor: "#ffffff08", borderWidth: 1, borderColor: "#ffffff14", borderRadius: 12, padding: 12, marginBottom: 14 },
+  vipBoxTitle:       { fontSize: 13, fontWeight: "700", marginBottom: 8 },
+  vipBoxItem:        { color: "#ccc", fontSize: 12, marginBottom: 5, lineHeight: 18 },
+  purchaseBuyBtn:    { width: "100%", borderRadius: 14, paddingVertical: 14, alignItems: "center", marginBottom: 12 },
+  purchaseBuyBtnText:{ color: "#000", fontSize: 14, fontWeight: "800" },
+  purchasePromoSection:{ borderTopWidth: 1, borderTopColor: "#1e1e1e", paddingTop: 12 },
+  purchasePromoLabel:  { color: "#666", fontSize: 12, marginBottom: 8 },
+  purchasePromoRow:    { flexDirection: "row", gap: 8 },
+  purchasePromoInput:  { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 13 },
+  purchasePromoBtn:    { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, justifyContent: "center" },
+  purchasePromoBtnText:{ fontSize: 12, fontWeight: "700" },
+  purchasePromoMsg:    { fontSize: 11, marginTop: 5 },
+  purchaseCancelBtn:   { width: "100%", marginTop: 10, alignItems: "center" },
+  purchaseCancelText:  { color: "#444", fontSize: 13 },
 
-  achievementRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  // ── شريط التنقل ──
+  bottomAd:      { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 6, alignItems: "center", position: "absolute", bottom: 80, left: 0, right: 0, zIndex: 90 },
+  bottomAdText:  { color: "#333", fontSize: 10 },
+  bottomNav:     { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 8, paddingBottom: Platform.OS === "ios" ? 20 : 10 },
+  bottomNavContent:{ flexDirection: "row", justifyContent: "space-around", alignItems: "center" },
+  navTabBtn:     { flex: 1, alignItems: "center", justifyContent: "center", gap: 2 },
+  navTabIconWrap:{ alignItems: "center", justifyContent: "center", minWidth: 32, height: 30 },
+  navTabIcon:    { fontSize: 18 },
+  navTabLabel:   { fontSize: 9, letterSpacing: 0.2 },
 });
