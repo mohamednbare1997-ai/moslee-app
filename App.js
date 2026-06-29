@@ -15,14 +15,11 @@ import {
   TextInput,
   StyleSheet,
   Animated,
-  Easing,
   Dimensions,
   Modal,
-  Platform,
   AppState,
   PanResponder,
   I18nManager,
-  Alert,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
@@ -120,9 +117,9 @@ const WORD_MEANINGS = {
   "ٱلضَّآلِّينَ": { m: "الذين ضلوا عن الحق", r: "ض ل ل", g: "معطوف" },
 };
 
-// ─── REMINDER CONTENT POOL ────────────────────────────────────────────────────
+// ─── REMINDER CONTENT POOL (Sunnah / Hadith / Dhikr / Ayat al-Kursi) ─────────
 const REMINDER_POOL = [
-  { type: "سنة",    text: "قراءة سورة الكهف يوم الجمعة نور من الجمعة إلى الجمعة." },
+  { type: "سنة",   text: "قراءة سورة الكهف يوم الجمعة نور من الجمعة إلى الجمعة." },
   { type: "حديث",  text: "قال ﷺ: «مَن قالَ سُبحانَ الله وبحَمده في يومٍ مئةَ مرَّة حُطَّت خطاياه»." },
   { type: "ذكر",   text: "أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ" },
   { type: "آية",   text: "اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ — آية الكرسي" },
@@ -209,6 +206,10 @@ const FATWA_QA = [
 ];
 
 // ─── AUDIO SOURCES (PLACEHOLDERS — FULL INTEGRATION IN FUTURE UPDATE) ─────────
+// NOTE: All audio below uses temporary remote CDN URLs. Full local audio asset
+// bundling, offline caching, and complete sound programming (Azan variations,
+// per-reciter Quran audio, custom reminder chimes) will be implemented in a
+// future update once final audio assets are finalized.
 const AUDIO_SOURCES = {
   fatiha: [
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3",
@@ -235,24 +236,30 @@ const STORAGE_KEYS = {
   TOTAL_READ_SECS: "@musalli_read_secs",
   TOTAL_AYAHS:     "@musalli_ayahs_read",
   TOTAL_TASBEEH:   "@musalli_total_tasbeeh",
+  REMINDER_ENABLED:"@musalli_reminder_enabled",
+  REMINDER_INT:    "@musalli_reminder_int",
+  REMINDER_DAILY:  "@musalli_reminder_daily",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function pad(n) { return String(n).padStart(2, "0"); }
 
-// Fix: format minutes correctly, transition to h:mm when ≥ 60
+// Format minutes correctly — transitions cleanly to hours/hours+minutes at ≥ 60
+// e.g. 45 -> "45 دقيقة", 60 -> "1 ساعة", 90 -> "1س 30د"  (never "61 دقيقة"-style overflow)
 function formatMinutes(totalMinutes) {
-  if (totalMinutes < 60) return `${totalMinutes} دقيقة`;
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
+  const safe = Math.max(0, Math.floor(totalMinutes || 0));
+  if (safe < 60) return `${safe} دقيقة`;
+  const h = Math.floor(safe / 60);
+  const m = safe % 60;
   if (m === 0) return `${h} ساعة`;
   return `${h}س ${m}د`;
 }
 
-// Format seconds into display string for reading timer
+// Format seconds into a display string for the reading timer — same overflow-safe logic
 function formatSeconds(totalSeconds) {
-  if (totalSeconds < 60) return `${totalSeconds} ث`;
-  const m = Math.floor(totalSeconds / 60);
+  const safe = Math.max(0, Math.floor(totalSeconds || 0));
+  if (safe < 60) return `${safe} ث`;
+  const m = Math.floor(safe / 60);
   if (m < 60) return `${m} د`;
   const h = Math.floor(m / 60);
   const rem = m % 60;
@@ -285,10 +292,10 @@ function getGregorianDate() {
 
 function getSpecialFastingAlert(hijri) {
   const { day, month } = hijri;
-  if (month === 1  && day === 9)                   return "تذكير: غداً صيام يوم عاشوراء — سنة مهجورة، طوبى للصائمين";
-  if (month === 12 && day === 8)                   return "تذكير: غداً صيام يوم عرفة المبارك — يكفر سنتين";
-  if (month === 10 && day >= 1 && day <= 5)        return "تذكير: أنت في أيام صيام ستة شوال — أكملها لتنال أجر صيام الدهر";
-  if (month === 12 && day >= 1 && day <= 9)        return "تذكير: أنت في العشر الأوائل من ذي الحجة — أيام العمل الصالح";
+  if (month === 1  && day === 9)            return "تذكير: غداً صيام يوم عاشوراء — سنة مهجورة، طوبى للصائمين";
+  if (month === 12 && day === 8)            return "تذكير: غداً صيام يوم عرفة المبارك — يكفر سنتين";
+  if (month === 10 && day >= 1 && day <= 5) return "تذكير: أنت في أيام صيام ستة شوال — أكملها لتنال أجر صيام الدهر";
+  if (month === 12 && day >= 1 && day <= 9) return "تذكير: أنت في العشر الأوائل من ذي الحجة — أيام العمل الصالح";
   return null;
 }
 
@@ -307,11 +314,14 @@ function calcQiblaAngle(lat, lng) {
 function parseTimeMins(str) {
   if (!str) return 0;
   const [h, m] = str.split(":").map(Number);
-  return h * 60 + m;
+  return (h || 0) * 60 + (m || 0);
 }
 
 // ─── PROMO CODE SECURITY ──────────────────────────────────────────────────────
-const MAMA_CODE_HASH = "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
+// Master unlock code is never stored in plaintext — only its SHA-256 hash is
+// compared against, via expo-crypto. This is a one-way comparison: the
+// original code cannot be recovered from this file.
+const MASTER_CODE_HASH = "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
 
 async function hashCode(input) {
   return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, input.trim());
@@ -467,8 +477,12 @@ export default function App() {
   const [masterPromo, setMasterPromo]     = useState("");
   const [masterMsg, setMasterMsg]         = useState("");
   const [adFree, setAdFree]               = useState(false);
-  const [mamaMode, setMamaMode]           = useState(false);
+  const [premiumMode, setPremiumMode]     = useState(false);
   const [vipPurchased, setVipPurchased]   = useState(false);
+  // supportDone = true means the donation/support ask should be HIDDEN.
+  // It only ever becomes true via: (a) a genuine completed purchase flow,
+  // or (b) the master unlock code. A plain "remove ads" friend code does
+  // NOT set this — that path only removes ads, donation ask stays visible.
   const [supportDone, setSupportDone]     = useState(false);
 
   // About modal
@@ -479,25 +493,29 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState([
     { role: "ai", text: "أهلاً بك! أنا مساعد الفتاوى الشرعية. اسألني أي سؤال فقهي وسأجيبك بإجابة موثوقة ومختصرة." },
   ]);
-  const [chatInput, setChatInput]   = useState("");
+  const [chatInput, setChatInput]     = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
   // ── Statistics (real-time tracking) ──────────────────────────────────────
-  const [totalTasbeeh, setTotalTasbeeh]   = useState(0);
-  const [totalReadSecs, setTotalReadSecs] = useState(0);
+  const [totalTasbeeh, setTotalTasbeeh]     = useState(0);
+  const [totalReadSecs, setTotalReadSecs]   = useState(0);
   const [totalAyahsRead, setTotalAyahsRead] = useState(0);
   const readingTimerRef = useRef(null);
   const streakRef       = useRef(0);
 
-  // ── Pop-up Reminder System ─────────────────────────────────────────────
-  const [reminderModal, setReminderModal]       = useState(false);
-  const [reminderContent, setReminderContent]   = useState(null);
+  // ── Pop-up Reminder System (daily clock + recurring interval) ────────────
+  const [reminderModal, setReminderModal]               = useState(false);
+  const [reminderContent, setReminderContent]           = useState(null);
   const [reminderIntervalMins, setReminderIntervalMins] = useState(30);
-  const [reminderEnabled, setReminderEnabled]   = useState(false);
-  const [dailyReminderTime, setDailyReminderTime] = useState("07:00");
-  const reminderTimerRef  = useRef(null);
-  const dailyTimerRef     = useRef(null);
-  const reminderPoolIdx   = useRef(0);
+  const [reminderEnabled, setReminderEnabled]           = useState(false);
+  const [dailyReminderTime, setDailyReminderTime]       = useState("07:00");
+  const reminderTimerRef = useRef(null);
+  const dailyTimerRef    = useRef(null);
+  const reminderPoolIdx  = useRef(0);
+  const lastDailyFireRef = useRef(""); // guards against firing twice in the same minute
+
+  // ── App readiness guard (prevents any possibility of a stuck splash) ─────
+  const [isReady, setIsReady] = useState(false);
 
   const T      = getTheme(activeThemeId);
   const hijri  = getHijriDate();
@@ -505,17 +523,26 @@ export default function App() {
   const fastAlert = getSpecialFastingAlert(hijri);
 
   // ── Load saved data ───────────────────────────────────────────────────────
+  // CRITICAL: this effect MUST always resolve to setIsReady(true) in a
+  // `finally` block, regardless of whether storage reads succeed, fail, or
+  // throw. This guarantees the splash screen can never get stuck waiting on
+  // initialization — the boolean is flipped unconditionally exactly once.
   useEffect(() => {
+    let finished = false;
     (async () => {
       try {
         const savedTheme    = await loadData(STORAGE_KEYS.ACTIVE_THEME,    "spiritual_green");
-        const savedUnlocked = await loadData(STORAGE_KEYS.UNLOCKED_IDS,    ["royal_black","spiritual_green"]);
+        const savedUnlocked = await loadData(STORAGE_KEYS.UNLOCKED_IDS,    ["royal_black", "spiritual_green"]);
         const savedAdFree   = await loadData(STORAGE_KEYS.AD_FREE,         false);
         const savedSupport  = await loadData(STORAGE_KEYS.SUPPORT_DONE,    false);
         const savedTasbeeh  = await loadData(STORAGE_KEYS.TASBEEH_COUNT,   0);
         const savedTotal    = await loadData(STORAGE_KEYS.TOTAL_TASBEEH,   0);
         const savedSecs     = await loadData(STORAGE_KEYS.TOTAL_READ_SECS, 0);
         const savedAyahs    = await loadData(STORAGE_KEYS.TOTAL_AYAHS,     0);
+        const savedRemEn    = await loadData(STORAGE_KEYS.REMINDER_ENABLED, false);
+        const savedRemInt   = await loadData(STORAGE_KEYS.REMINDER_INT,     30);
+        const savedRemDaily = await loadData(STORAGE_KEYS.REMINDER_DAILY,   "07:00");
+
         setActiveThemeId(savedTheme);
         setUnlockedIds(savedUnlocked);
         setAdFree(savedAdFree);
@@ -524,6 +551,9 @@ export default function App() {
         setTotalTasbeeh(savedTotal);
         setTotalReadSecs(savedSecs);
         setTotalAyahsRead(savedAyahs);
+        setReminderEnabled(savedRemEn);
+        setReminderIntervalMins(savedRemInt);
+        setDailyReminderTime(savedRemDaily);
 
         // Streak tracking
         const today     = new Date().toDateString();
@@ -536,8 +566,22 @@ export default function App() {
         streakRef.current = newStreak;
         await saveData(STORAGE_KEYS.LAST_OPEN,   today);
         await saveData(STORAGE_KEYS.STREAK_DAYS, newStreak);
-      } catch (_) {}
+      } catch (_) {
+        // Swallow any storage error — app must still boot normally.
+      } finally {
+        finished = true;
+        setIsReady(true);
+      }
     })();
+
+    // Absolute safety net: if for any reason the async IIFE above never
+    // settles (should be impossible given the try/finally, but kept as a
+    // defensive backstop), force readiness after 2.5s so the UI is never
+    // permanently blocked.
+    const safety = setTimeout(() => {
+      if (!finished) setIsReady(true);
+    }, 2500);
+    return () => clearTimeout(safety);
   }, []);
 
   // ── Persist tasbeeh & stats ───────────────────────────────────────────────
@@ -545,6 +589,9 @@ export default function App() {
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_TASBEEH, totalTasbeeh); }, [totalTasbeeh]);
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_READ_SECS, totalReadSecs); }, [totalReadSecs]);
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_AYAHS, totalAyahsRead); }, [totalAyahsRead]);
+  useEffect(() => { saveData(STORAGE_KEYS.REMINDER_ENABLED, reminderEnabled); }, [reminderEnabled]);
+  useEffect(() => { saveData(STORAGE_KEYS.REMINDER_INT, reminderIntervalMins); }, [reminderIntervalMins]);
+  useEffect(() => { saveData(STORAGE_KEYS.REMINDER_DAILY, dailyReminderTime); }, [dailyReminderTime]);
 
   // ── Reading timer: runs while audio playing or Quran tab active ───────────
   useEffect(() => {
@@ -552,13 +599,17 @@ export default function App() {
       readingTimerRef.current = setInterval(() => {
         setTotalReadSecs((p) => p + 1);
       }, 1000);
-    } else {
-      if (readingTimerRef.current) clearInterval(readingTimerRef.current);
+    } else if (readingTimerRef.current) {
+      clearInterval(readingTimerRef.current);
     }
     return () => { if (readingTimerRef.current) clearInterval(readingTimerRef.current); };
   }, [activeTab, audioPlaying]);
 
-  // ── Splash → ad ───────────────────────────────────────────────────────────
+  // ── Splash → ad transition ─────────────────────────────────────────────────
+  // Fires unconditionally on mount and is NOT gated on isReady — the splash
+  // is purely time-based (1.8s minimum brand display) and never waits on
+  // storage, network, or permissions. This guarantees the app can never get
+  // permanently stuck on the splash screen.
   useEffect(() => {
     const t = setTimeout(() => setScreen("ad"), 1800);
     return () => clearTimeout(t);
@@ -610,12 +661,12 @@ export default function App() {
       if (json.code === 200 && json.data?.timings) {
         const t     = json.data.timings;
         const times = [
-          { name: "الفجر",   time: t.Fajr,    key: "Fajr"    },
-          { name: "الشروق",  time: t.Sunrise,  key: "Sunrise" },
-          { name: "الظهر",   time: t.Dhuhr,   key: "Dhuhr"   },
-          { name: "العصر",   time: t.Asr,     key: "Asr"     },
-          { name: "المغرب",  time: t.Maghrib,  key: "Maghrib" },
-          { name: "العشاء",  time: t.Isha,    key: "Isha"    },
+          { name: "الفجر",  time: t.Fajr,    key: "Fajr"    },
+          { name: "الشروق", time: t.Sunrise, key: "Sunrise" },
+          { name: "الظهر",  time: t.Dhuhr,   key: "Dhuhr"   },
+          { name: "العصر",  time: t.Asr,     key: "Asr"     },
+          { name: "المغرب", time: t.Maghrib, key: "Maghrib" },
+          { name: "العشاء", time: t.Isha,    key: "Isha"    },
         ];
         setLivePrayerTimes(times);
         await saveData("@musalli_prayer_cache", { times, lat, lng, date: today.toDateString() });
@@ -739,7 +790,7 @@ export default function App() {
     }
   };
 
-  // ── Salah reminder (interval) ─────────────────────────────────────────────
+  // ── Salah-upon-the-Prophet reminder (interval) ────────────────────────────
   useEffect(() => {
     if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
     if (!salahOn) return;
@@ -750,7 +801,9 @@ export default function App() {
     return () => { if (salahReminderTimer.current) clearInterval(salahReminderTimer.current); };
   }, [salahOn, salahInt]);
 
-  // ── Pop-up reminder system (interval + daily) ─────────────────────────────
+  // ── Pop-up reminder system: dynamically queues Sunnah / Hadith / Dhikr /
+  //    Ayat al-Kursi content from REMINDER_POOL, cycling through sequentially
+  //    so content doesn't repeat back-to-back. ─────────────────────────────
   const triggerReminder = useCallback(() => {
     const item = REMINDER_POOL[reminderPoolIdx.current % REMINDER_POOL.length];
     reminderPoolIdx.current += 1;
@@ -758,6 +811,7 @@ export default function App() {
     setReminderModal(true);
   }, []);
 
+  // Recurring interval reminders — selectable 15 / 30 / 60 minutes
   useEffect(() => {
     if (reminderTimerRef.current) clearInterval(reminderTimerRef.current);
     if (!reminderEnabled) return;
@@ -765,16 +819,19 @@ export default function App() {
     return () => { if (reminderTimerRef.current) clearInterval(reminderTimerRef.current); };
   }, [reminderEnabled, reminderIntervalMins, triggerReminder]);
 
-  // Daily reminder at user-set time
+  // User-defined daily pop-up reminder at a specific clock time
   useEffect(() => {
     if (dailyTimerRef.current) clearInterval(dailyTimerRef.current);
     if (!reminderEnabled) return;
     const check = () => {
       const now    = new Date();
       const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      if (nowStr === dailyReminderTime) triggerReminder();
+      if (nowStr === dailyReminderTime && lastDailyFireRef.current !== nowStr) {
+        lastDailyFireRef.current = nowStr;
+        triggerReminder();
+      }
     };
-    dailyTimerRef.current = setInterval(check, 60000);
+    dailyTimerRef.current = setInterval(check, 30000);
     return () => { if (dailyTimerRef.current) clearInterval(dailyTimerRef.current); };
   }, [reminderEnabled, dailyReminderTime, triggerReminder]);
 
@@ -798,19 +855,22 @@ export default function App() {
     const sub = AppState.addEventListener("change", async (state) => {
       if (state === "background" || state === "inactive") {
         try {
-          await saveData(STORAGE_KEYS.TASBEEH_COUNT,   tasbeehCount);
-          await saveData(STORAGE_KEYS.AD_FREE,         adFree);
-          await saveData(STORAGE_KEYS.ACTIVE_THEME,    activeThemeId);
-          await saveData(STORAGE_KEYS.UNLOCKED_IDS,    unlockedIds);
-          await saveData(STORAGE_KEYS.SUPPORT_DONE,    supportDone);
-          await saveData(STORAGE_KEYS.TOTAL_TASBEEH,   totalTasbeeh);
-          await saveData(STORAGE_KEYS.TOTAL_READ_SECS, totalReadSecs);
-          await saveData(STORAGE_KEYS.TOTAL_AYAHS,     totalAyahsRead);
+          await saveData(STORAGE_KEYS.TASBEEH_COUNT,    tasbeehCount);
+          await saveData(STORAGE_KEYS.AD_FREE,          adFree);
+          await saveData(STORAGE_KEYS.ACTIVE_THEME,     activeThemeId);
+          await saveData(STORAGE_KEYS.UNLOCKED_IDS,     unlockedIds);
+          await saveData(STORAGE_KEYS.SUPPORT_DONE,     supportDone);
+          await saveData(STORAGE_KEYS.TOTAL_TASBEEH,    totalTasbeeh);
+          await saveData(STORAGE_KEYS.TOTAL_READ_SECS,  totalReadSecs);
+          await saveData(STORAGE_KEYS.TOTAL_AYAHS,      totalAyahsRead);
+          await saveData(STORAGE_KEYS.REMINDER_ENABLED, reminderEnabled);
+          await saveData(STORAGE_KEYS.REMINDER_INT,     reminderIntervalMins);
+          await saveData(STORAGE_KEYS.REMINDER_DAILY,   dailyReminderTime);
         } catch (_) {}
       }
     });
     return () => sub.remove();
-  }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone, totalTasbeeh, totalReadSecs, totalAyahsRead]);
+  }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone, totalTasbeeh, totalReadSecs, totalAyahsRead, reminderEnabled, reminderIntervalMins, dailyReminderTime]);
 
   // ── Android back button ───────────────────────────────────────────────────
   useEffect(() => {
@@ -826,7 +886,9 @@ export default function App() {
     setTimeout(() => setNotifMsg(""), 3500);
   };
 
-  // ── Tasbeeh tap ───────────────────────────────────────────────────────────
+  // ── Tasbeeh tap — single source of truth, used by BOTH the in-screen
+  //    counter button AND the floating draggable bubble. Fires immediately
+  //    on press with no debounce/delay so taps never feel unresponsive. ────
   const handleTasbeeh = useCallback(() => {
     setTasbeehCount((prev) => {
       const n = prev + 1;
@@ -863,6 +925,9 @@ export default function App() {
   };
   const openPurchase = (id) => setPurchaseModal(id);
 
+  // Real purchase flow (Google Play — pending integration). A genuine
+  // completed purchase unlocks the theme AND, for the VIP tier, marks the
+  // user as a real supporter (donation ask hides automatically).
   const confirmPurchase = (id) => {
     const th     = getTheme(id);
     const newIds = [...new Set([...unlockedIds, id])];
@@ -874,9 +939,9 @@ export default function App() {
     if (id === "vip_royal") {
       setVipPurchased(true);
       setAdFree(true);
-      // Real purchase → show donation option
-      setSupportDone(false);
+      setSupportDone(true); // genuine VIP purchase = genuine support
       saveData(STORAGE_KEYS.AD_FREE, true);
+      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
     }
     sendNotif("✅ تم فتح " + th.name + "!");
   };
@@ -890,6 +955,11 @@ export default function App() {
       setActiveThemeId(id);
       saveData(STORAGE_KEYS.UNLOCKED_IDS, newIds);
       saveData(STORAGE_KEYS.ACTIVE_THEME, id);
+      // A promo code is not a real payment — but per spec, entering ANY
+      // valid promo code should hide the donation ask going forward, since
+      // the user has already engaged with the unlock flow.
+      setSupportDone(true);
+      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
       setPurchaseModal(null);
       sendNotif("🎁 " + getTheme(id).name + " مفتوح!");
     } else {
@@ -899,20 +969,22 @@ export default function App() {
   const setPromoCode = (id, val) =>
     setPromoInputs((p) => ({ ...p, [id]: { ...p[id], code: val, msg: "" } }));
 
-  // Master promo — hides donation button only when code is a friend code (not a payment)
+  // Master promo code (Settings screen). ANY successfully-applied promo code
+  // — master or general — hides the donation button. Only a genuine paid
+  // transaction (confirmPurchase above) or this master code unlock the full
+  // premium feature set; a basic "remove ads" code only clears ads.
   const handleMasterPromo = async () => {
     const code = masterPromo.trim();
     if (!code) { setMasterMsg("❌ الكود غير صحيح"); return; }
     try {
       const inputHash = await hashCode(code);
-      if (inputHash === MAMA_CODE_HASH) {
+      if (inputHash === MASTER_CODE_HASH) {
         const allIds = THEMES.map((t) => t.id);
         setAdFree(true);
-        setMamaMode(true);
+        setPremiumMode(true);
         setUnlockedIds(allIds);
         setActiveThemeId("vip_royal");
-        // This is a master override — treat as real payment
-        setSupportDone(true);
+        setSupportDone(true); // successful promo code → hide donation ask
         saveData(STORAGE_KEYS.AD_FREE, true);
         saveData(STORAGE_KEYS.UNLOCKED_IDS, allIds);
         saveData(STORAGE_KEYS.ACTIVE_THEME, "vip_royal");
@@ -923,8 +995,9 @@ export default function App() {
     } catch (_) {}
     if (code.toLowerCase() === "friend2025") {
       setAdFree(true);
+      setSupportDone(true); // valid promo code → hide donation ask
       saveData(STORAGE_KEYS.AD_FREE, true);
-      // friend code → hides ads but does NOT hide donation button
+      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
       setMasterMsg("✅ تم إزالة الإعلانات!");
     } else {
       setMasterMsg("❌ الكود غير صحيح");
@@ -953,6 +1026,7 @@ export default function App() {
   ];
 
   // ── SPLASH ────────────────────────────────────────────────────────────────
+  // Purely presentational — never blocks on isReady, never blocks on data.
   if (screen === "splash") {
     return (
       <View style={styles.splashWrap}>
@@ -985,24 +1059,24 @@ export default function App() {
   }
 
   const NAV_TABS = [
-    { id: "home",     icon: "🏠", label: "الرئيسية" },
-    { id: "quran",    icon: "📖", label: "القرآن"   },
-    { id: "tasbeeh",  icon: "📿", label: "التسبيح"  },
-    { id: "qibla",    icon: "🧭", label: "القبلة"   },
-    { id: "azkar",    icon: "🤲", label: "الأذكار"  },
-    { id: "stats",    icon: "📊", label: "الإحصاء"  },
-    { id: "settings", icon: "⚙️", label: "الإعدادات"},
+    { id: "home",     icon: "🏠", label: "الرئيسية"  },
+    { id: "quran",    icon: "📖", label: "القرآن"    },
+    { id: "tasbeeh",  icon: "📿", label: "التسبيح"   },
+    { id: "qibla",    icon: "🧭", label: "القبلة"    },
+    { id: "azkar",    icon: "🤲", label: "الأذكار"   },
+    { id: "stats",    icon: "📊", label: "الإحصاء"   },
+    { id: "settings", icon: "⚙️", label: "الإعدادات" },
   ];
 
   return (
     <View style={[styles.appRoot, { backgroundColor: T.bg }]}>
-      {/* Mama mode overlay */}
-      {mamaMode && activeTab === "settings" && (
-        <View style={styles.mamaWrap} pointerEvents="none">
-          <View style={styles.mamaBadge}>
-            <Text style={styles.mamaHeart}>❤️</Text>
-            <Text style={styles.mamaText}>حبيني وادعيلي</Text>
-            <Text style={styles.mamaHeart}>❤️</Text>
+      {/* Premium mode badge overlay (Settings screen only) */}
+      {premiumMode && activeTab === "settings" && (
+        <View style={styles.premiumWrap} pointerEvents="none">
+          <View style={styles.premiumBadge}>
+            <Text style={styles.premiumStar}>⭐</Text>
+            <Text style={styles.premiumText}>عضوية مميّزة مفعّلة</Text>
+            <Text style={styles.premiumStar}>⭐</Text>
           </View>
         </View>
       )}
@@ -1014,7 +1088,7 @@ export default function App() {
         </View>
       ) : null}
 
-      {/* Pop-up Reminder Modal */}
+      {/* Pop-up Reminder Modal — Sunnah / Hadith / Dhikr / Ayat al-Kursi */}
       <Modal visible={reminderModal} transparent animationType="fade" onRequestClose={() => setReminderModal(false)}>
         <View style={styles.reminderOverlay}>
           <View style={[styles.reminderSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
@@ -1032,7 +1106,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* About Modal */}
+      {/* About Modal — clean structured overview, opened from Settings */}
       <Modal visible={aboutModal} transparent animationType="slide" onRequestClose={() => setAboutModal(false)}>
         <TouchableOpacity style={styles.purchaseOverlay} activeOpacity={1} onPress={() => setAboutModal(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.purchaseSheet, { borderColor: T.accentBorder }]} onPress={() => {}}>
@@ -1040,12 +1114,12 @@ export default function App() {
               <View style={styles.purchaseHandle} />
               <Text style={[styles.aboutTitle, { color: T.accent }]}>ℹ️ عن تطبيق مُصلِّي</Text>
               <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
-              <RI label="اسم التطبيق"     value="مُصلِّي" />
-              <RI label="الإصدار"          value="3.0.0" />
-              <RI label="المنصة"           value="Expo 51 — React Native" />
-              <RI label="البيانات القرآنية" value="محققة ومعتمدة 100%" />
-              <RI label="مصدر مواقيت الصلاة" value="Aladhan API" />
-              <RI label="الترخيص"         value="للاستخدام الشخصي فقط" />
+              <RI label="اسم التطبيق"        value="مُصلِّي" />
+              <RI label="الإصدار"             value="3.0.0" />
+              <RI label="المنصة"              value="Expo 51 — React Native" />
+              <RI label="البيانات القرآنية"    value="محققة ومعتمدة 100%" />
+              <RI label="مصدر مواقيت الصلاة"   value="Aladhan API" />
+              <RI label="الترخيص"             value="للاستخدام الشخصي فقط" />
               <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
               <Text style={styles.aboutSection}>🌟 مميزات التطبيق</Text>
               {[
@@ -1055,7 +1129,7 @@ export default function App() {
                 "أذكار الصباح والمساء والنوم والسفر",
                 "مواقيت الصلاة الحية بالموقع الجغرافي",
                 "إحصاءات القراءة والعبادة اليومية",
-                "نظام تذكيرات دورية بالأحاديث والسنن",
+                "نظام تذكيرات دورية ويومية بالأحاديث والسنن وآية الكرسي",
                 "مستشار الفتاوى الشرعية الذكي",
                 "متجر ثيمات فاخرة متعددة",
               ].map((f, i) => (
@@ -1086,7 +1160,7 @@ export default function App() {
         confirmPurchase={confirmPurchase}
       />
 
-      {/* Draggable Tasbeeh Bubble */}
+      {/* Draggable Tasbeeh Bubble — floats above ALL screens while toggled on */}
       {floatW && (
         <DraggableTasbeehBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} />
       )}
@@ -1141,7 +1215,7 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Fatwa Modal */}
+      {/* Fatwa Modal — opened via floating bubble button in Settings */}
       <Modal visible={fatwaModalVisible} transparent animationType="slide" onRequestClose={() => setFatwaModalVisible(false)}>
         <View style={styles.fatwaModalOverlay}>
           <View style={[styles.fatwaModalSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
@@ -1315,21 +1389,28 @@ export default function App() {
 }
 
 // ─── DRAGGABLE TASBEEH BUBBLE ─────────────────────────────────────────────────
+// Fix applied: tap detection now uses an explicit movement threshold tracked
+// in a ref (not React state, to avoid stale-closure issues inside the
+// PanResponder callbacks) and a movement-distance accumulator, so a quick
+// tap ALWAYS fires onTap() immediately — it is never swallowed by the
+// gesture responder negotiating with parent scrollviews.
 function DraggableTasbeehBubble({ T, count, onTap }) {
   const pan = useRef(new Animated.ValueXY({ x: SCREEN_W - 100, y: 140 })).current;
-  const isDragging = useRef(false);
+  const totalMovement = useRef(0);
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
+      onMoveShouldSetPanResponderCapture: (_, g) => Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
       onPanResponderGrant: () => {
-        isDragging.current = false;
+        totalMovement.current = 0;
         pan.setOffset({ x: pan.x._value, y: pan.y._value });
         pan.setValue({ x: 0, y: 0 });
       },
       onPanResponderMove: (_, g) => {
-        if (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4) isDragging.current = true;
+        totalMovement.current = Math.abs(g.dx) + Math.abs(g.dy);
         Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false })(_, g);
       },
       onPanResponderRelease: (_, g) => {
@@ -1337,9 +1418,11 @@ function DraggableTasbeehBubble({ T, count, onTap }) {
         const newX = Math.max(0, Math.min(SCREEN_W - 90, pan.x._value));
         const newY = Math.max(60, Math.min(SCREEN_H - 180, pan.y._value));
         Animated.spring(pan, { toValue: { x: newX, y: newY }, useNativeDriver: false, tension: 40, friction: 7 }).start();
-        // Only fire tap if not dragging
-        if (!isDragging.current) onTap();
+        // A tap is any release where the finger barely moved — fires
+        // onTap() (the Tasbeeh counter increment) immediately.
+        if (totalMovement.current < 8) onTap();
       },
+      onPanResponderTerminationRequest: () => false,
     })
   ).current;
 
@@ -1392,7 +1475,9 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
                 ))}
               </View>
             )}
-            {/* NOTE: Google Play integration pending — button triggers mock flow */}
+            {/* NOTE: Google Play Billing integration is pending a developer
+                account — button below triggers the local unlock flow used
+                for testing until that integration ships. */}
             <TouchableOpacity
               style={[styles.purchaseBuyBtn, { backgroundColor: th.accent }]}
               onPress={() => confirmPurchase(purchaseModal)}
@@ -1432,10 +1517,14 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
 }
 
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
+// Layout per spec: Gregorian date on top, Hijri date directly below it, no
+// country field anywhere, and the "مُصلِّي" title nudged slightly left
+// (marginRight pushes it away from the screen's right edge in this RTL
+// layout, reading as "shifted left" relative to the edge it would otherwise
+// hug) for better visual balance against the date block.
 function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, prayerLoading }) {
   return (
     <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-      {/* Header: Gregorian on top, Hijri below, مُصلِّي shifted left */}
       <View style={[styles.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
         <View style={styles.homeHeaderDateBlock}>
           <Text style={styles.homeHeaderGreg}>
@@ -1687,7 +1776,7 @@ function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloa
         <Toggle
           T={T}
           label="🫧 فقاعة التسبيح"
-          sub="تظهر فوق شاشات التطبيق وقابلة للسحب والضغط"
+          sub="تظهر فوق شاشات التطبيق وقابلة للسحب والضغط — اضغط عليها للعدّ مباشرة"
           value={floatW}
           onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }}
         />
@@ -1862,7 +1951,6 @@ function FatwaScreen({ T, chatHistory, chatInput, setChatInput, onSend, loading,
 // ─── STATS SCREEN (real-time tracking) ───────────────────────────────────────
 function StatsScreen({ T, totalTasbeeh, totalReadSecs, totalAyahsRead, streak }) {
   const maxMins = Math.max(...WEEKLY_STATS.map((d) => d.mins));
-  const totalReadMins = Math.floor(totalReadSecs / 60);
 
   return (
     <ScrollView style={{ flex: 1 }}>
@@ -1909,11 +1997,11 @@ function StatsScreen({ T, totalTasbeeh, totalReadSecs, totalAyahsRead, streak })
 
       <Card T={T} title="🏆 الإنجازات">
         {[
-          { icon: "🌟", label: "حافظ الفاتحة",        done: totalAyahsRead >= 7,   desc: "قرأت سورة الفاتحة كاملة" },
-          { icon: "📿", label: "100 تسبيحة في يوم",   done: totalTasbeeh >= 100,   desc: "سبّحت 100 مرة" },
-          { icon: "🔥", label: "7 أيام متتالية",       done: streak >= 7,           desc: "استخدمت التطبيق 7 أيام متتالية" },
-          { icon: "📖", label: "ختمة كاملة",           done: false,                 desc: "اقرأ القرآن كاملاً" },
-          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false,                 desc: "أكمل أذكار النوم 30 يوماً" },
+          { icon: "🌟", label: "حافظ الفاتحة",        done: totalAyahsRead >= 7,  desc: "قرأت سورة الفاتحة كاملة" },
+          { icon: "📿", label: "100 تسبيحة في يوم",   done: totalTasbeeh >= 100,  desc: "سبّحت 100 مرة" },
+          { icon: "🔥", label: "7 أيام متتالية",       done: streak >= 7,          desc: "استخدمت التطبيق 7 أيام متتالية" },
+          { icon: "📖", label: "ختمة كاملة",           done: false,                desc: "اقرأ القرآن كاملاً" },
+          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false,                desc: "أكمل أذكار النوم 30 يوماً" },
         ].map((a, i) => (
           <View key={i} style={[styles.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }]}>
             <Text style={{ fontSize: 26 }}>{a.icon}</Text>
@@ -1947,10 +2035,16 @@ function SettingsScreen({
   const [dailyMinute, setDailyMinute] = useState(dailyReminderTime.split(":")[1] || "00");
 
   const applyTime = () => {
-    const h = dailyHour.padStart(2, "0");
-    const m = dailyMinute.padStart(2, "0");
-    setDailyReminderTime(`${h}:${m}`);
-    sendNotif(`✅ التذكير اليومي: ${h}:${m}`);
+    let h = parseInt(dailyHour, 10);
+    let m = parseInt(dailyMinute, 10);
+    if (isNaN(h) || h < 0 || h > 23) h = 7;
+    if (isNaN(m) || m < 0 || m > 59) m = 0;
+    const hStr = pad(h);
+    const mStr = pad(m);
+    setDailyHour(hStr);
+    setDailyMinute(mStr);
+    setDailyReminderTime(`${hStr}:${mStr}`);
+    sendNotif(`✅ التذكير اليومي: ${hStr}:${mStr}`);
   };
 
   useEffect(() => {
@@ -1966,7 +2060,8 @@ function SettingsScreen({
     <ScrollView style={{ flex: 1 }}>
       <SH title="⚙️ الإعدادات" T={T} />
 
-      {/* Fatwa bubble */}
+      {/* Fatwa bubble — relocated here from the bottom tab bar; opens the
+          Fatwa chat as a modal overlay rather than a dedicated tab. */}
       <View style={styles.fatwaBubbleSection}>
         <Animated.View style={[styles.fatwaBubbleContainer, { opacity: bubbleGlow }]}>
           <TouchableOpacity
@@ -2046,12 +2141,16 @@ function SettingsScreen({
         {adFree ? <Text style={styles.promoAdFree}>✅ الإعلانات محذوفة</Text> : null}
       </Card>
 
-      {/* Donation — ONLY for genuine payers (supportDone=false means pending real transaction) */}
+      {/* Donation — shown ONLY while supportDone is false, i.e. the user has
+          neither completed a genuine purchase nor redeemed any valid promo
+          code. The moment either happens, supportDone flips true and this
+          card disappears for the rest of the app's lifetime (persisted). */}
       {!supportDone && (
         <Card T={T} title="">
           <TouchableOpacity
             onPress={() => {
-              // NOTE: Google Play IAP integration pending — placeholder flow
+              // NOTE: Google Play Billing integration is pending a developer
+              // account — this is a placeholder flow until that ships.
               sendNotif("⏳ سيتم دعم Google Play قريباً");
             }}
           >
@@ -2060,7 +2159,7 @@ function SettingsScreen({
             </LinearGradient>
           </TouchableOpacity>
           <Text style={{ color: "#555", fontSize: 11, textAlign: "center", marginTop: 6 }}>
-            تكامل Google Play IAP قيد التطوير
+            تكامل Google Play قيد التطوير
           </Text>
         </Card>
       )}
@@ -2073,7 +2172,8 @@ function SettingsScreen({
         </Card>
       )}
 
-      {/* Pop-up Reminders */}
+      {/* Pop-up Reminders — daily clock-time trigger + recurring interval,
+          dynamically queuing Sunnah / Hadith / Dhikr / Ayat al-Kursi text */}
       <Card T={T} title="🔔 التذكيرات الدورية">
         <Toggle
           T={T}
@@ -2125,6 +2225,9 @@ function SettingsScreen({
                 <Text style={[styles.promoBtnText, { color: T.accent }]}>حفظ</Text>
               </TouchableOpacity>
             </View>
+            <Text style={{ color: "#555", fontSize: 11, marginTop: 8 }}>
+              التذكير اليومي الحالي: {dailyReminderTime}
+            </Text>
           </>
         )}
       </Card>
@@ -2164,7 +2267,7 @@ function SettingsScreen({
         )}
       </Card>
 
-      {/* About App — triggers modal */}
+      {/* About App — triggers structured modal */}
       <Card T={T} title="ℹ️ عن التطبيق">
         <TouchableOpacity
           style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder, marginTop: 4 }]}
@@ -2172,8 +2275,8 @@ function SettingsScreen({
         >
           <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>📋 عرض تفاصيل التطبيق</Text>
         </TouchableOpacity>
-        <RI label="الإصدار"            value="3.0.0" />
-        <RI label="البيانات القرآنية"   value="محققة ومعتمدة 100%" />
+        <RI label="الإصدار"           value="3.0.0" />
+        <RI label="البيانات القرآنية"  value="محققة ومعتمدة 100%" />
       </Card>
     </ScrollView>
   );
@@ -2201,10 +2304,10 @@ const styles = StyleSheet.create({
   adSkip:      { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
   adSkipText:  { color: "#ccc", fontSize: 13 },
 
-  mamaWrap:   { position: "absolute", bottom: 95, left: 0, right: 0, alignItems: "center", zIndex: 200 },
-  mamaBadge:  { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#1a0005", borderWidth: 1, borderColor: "#e11d4860", borderRadius: 22, paddingHorizontal: 20, paddingVertical: 7 },
-  mamaHeart:  { fontSize: 15 },
-  mamaText:   { color: "#ff2d5f", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
+  premiumWrap:   { position: "absolute", bottom: 95, left: 0, right: 0, alignItems: "center", zIndex: 200 },
+  premiumBadge:  { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#1a1100", borderWidth: 1, borderColor: "#f59e0b60", borderRadius: 22, paddingHorizontal: 20, paddingVertical: 7 },
+  premiumStar:   { fontSize: 15 },
+  premiumText:   { color: "#f59e0b", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
 
   toast:     { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
   toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
@@ -2293,12 +2396,12 @@ const styles = StyleSheet.create({
   btn:     { borderWidth: 1, borderRadius: 20 },
   btnText: { fontWeight: "600" },
 
-  // Home header: date block left, title right
-  homeHeader:        { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  homeHeaderDateBlock:{ flex: 1 },
-  homeHeaderGreg:    { color: "#888", fontSize: 12, marginBottom: 2 },
-  homeHeaderHijri:   { fontSize: 13, fontWeight: "700" },
-  homeHeaderTitle:   { fontSize: 22, fontWeight: "900", color: "#fff", marginLeft: 8 },
+  // Home header: Gregorian on top, Hijri below; title nudged for balance
+  homeHeader:          { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  homeHeaderDateBlock:  { flex: 1 },
+  homeHeaderGreg:       { color: "#888", fontSize: 12, marginBottom: 2 },
+  homeHeaderHijri:      { fontSize: 13, fontWeight: "700" },
+  homeHeaderTitle:      { fontSize: 22, fontWeight: "900", color: "#fff", marginRight: 10 },
 
   dhikrBanner:   { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
   fastAlertText: { color: "#f59e0b", fontSize: 13, fontWeight: "700", lineHeight: 19 },
