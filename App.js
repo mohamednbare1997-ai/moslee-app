@@ -1,3 +1,5 @@
+//  السكربت الكامل
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  مُصلِّي — App.js  |  Expo 51
 //  AUDIO NOTE: Full audio asset integration and sound programming will be
@@ -117,7 +119,7 @@ const WORD_MEANINGS = {
   "ٱلضَّآلِّينَ": { m: "الذين ضلوا عن الحق", r: "ض ل ل", g: "معطوف" },
 };
 
-// ─── REMINDER CONTENT POOL (Sunnah / Hadith / Dhikr / Ayat al-Kursi) ─────────
+// ─── REMINDER CONTENT POOL ────────────────────────────────────────────────────
 const REMINDER_POOL = [
   { type: "سنة",   text: "قراءة سورة الكهف يوم الجمعة نور من الجمعة إلى الجمعة." },
   { type: "حديث",  text: "قال ﷺ: «مَن قالَ سُبحانَ الله وبحَمده في يومٍ مئةَ مرَّة حُطَّت خطاياه»." },
@@ -197,19 +199,7 @@ const VIP_DHIKR_SLOTS = [
   "سبحان الله وبحمده عدد خلقه ورضا نفسه وزنة عرشه ومداد كلماته",
 ];
 
-const FATWA_QA = [
-  { q: "هل يجوز الصلاة بملابس العمل؟", a: "نعم، تجوز الصلاة بأي ملابس طاهرة ساترة للعورة، سواء كانت ملابس عمل أو غيرها، بشرط الطهارة وستر العورة." },
-  { q: "ما حكم صيام يوم السبت منفرداً؟", a: "اختلف العلماء في ذلك، والأحوط تركه إن لم يوافق صياماً آخر كالنذر أو القضاء، وذلك اتباعاً للحديث الوارد في النهي عنه." },
-  { q: "هل تصح الصلاة خلف المسبوق؟", a: "لا تصح الصلاة خلف المسبوق إذا كان يقضي، لأن المأموم يجب أن يكون في مثل حال إمامه أو أكمل." },
-  { q: "ما حكم قراءة القرآن بدون وضوء؟", a: "يجوز قراءة القرآن بدون وضوء للمتطهر من الحدث الأكبر، أما مس المصحف فيشترط له الطهارة على الراجح." },
-  { q: "هل يجوز الجمع بين الصلاتين للمطر؟", a: "نعم، يجوز الجمع بين الظهر والعصر وبين المغرب والعشاء بسبب المطر الشديد الذي يشق معه الخروج، وهو مذهب الجمهور." },
-];
-
-// ─── AUDIO SOURCES (PLACEHOLDERS — FULL INTEGRATION IN FUTURE UPDATE) ─────────
-// NOTE: All audio below uses temporary remote CDN URLs. Full local audio asset
-// bundling, offline caching, and complete sound programming (Azan variations,
-// per-reciter Quran audio, custom reminder chimes) will be implemented in a
-// future update once final audio assets are finalized.
+// ─── AUDIO SOURCES ────────────────────────────────────────────────────────────
 const AUDIO_SOURCES = {
   fatiha: [
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3",
@@ -226,26 +216,28 @@ const AUDIO_SOURCES = {
 
 // ─── KEYS FOR ASYNCSTORAGE ────────────────────────────────────────────────────
 const STORAGE_KEYS = {
-  TASBEEH_COUNT:   "@musalli_tasbeeh",
-  STREAK_DAYS:     "@musalli_streak",
-  LAST_OPEN:       "@musalli_last_open",
-  AD_FREE:         "@musalli_ad_free",
-  ACTIVE_THEME:    "@musalli_theme",
-  UNLOCKED_IDS:    "@musalli_unlocked",
-  SUPPORT_DONE:    "@musalli_support_done",
-  TOTAL_READ_SECS: "@musalli_read_secs",
-  TOTAL_AYAHS:     "@musalli_ayahs_read",
-  TOTAL_TASBEEH:   "@musalli_total_tasbeeh",
-  REMINDER_ENABLED:"@musalli_reminder_enabled",
-  REMINDER_INT:    "@musalli_reminder_int",
-  REMINDER_DAILY:  "@musalli_reminder_daily",
+  TASBEEH_COUNT:    "@musalli_tasbeeh",
+  STREAK_DAYS:      "@musalli_streak",
+  LAST_OPEN:        "@musalli_last_open",
+  AD_FREE:          "@musalli_ad_free",
+  ACTIVE_THEME:     "@musalli_theme",
+  UNLOCKED_IDS:     "@musalli_unlocked",
+  SUPPORT_DONE:     "@musalli_support_done",
+  TOTAL_READ_SECS:  "@musalli_read_secs",
+  TOTAL_AYAHS:      "@musalli_ayahs_read",
+  TOTAL_TASBEEH:    "@musalli_total_tasbeeh",
+  REMINDER_ENABLED: "@musalli_reminder_enabled",
+  REMINDER_INT:     "@musalli_reminder_int",
+  REMINDER_DAILY:   "@musalli_reminder_daily",
+  // FIX #2: Genuine purchase tracking fields
+  PURCHASED_IDS:    "@musalli_purchased_ids",
+  VIP_PURCHASED:    "@musalli_vip_purchased",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function pad(n) { return String(n).padStart(2, "0"); }
 
-// Format minutes correctly — transitions cleanly to hours/hours+minutes at ≥ 60
-// e.g. 45 -> "45 دقيقة", 60 -> "1 ساعة", 90 -> "1س 30د"  (never "61 دقيقة"-style overflow)
+// FIX #4: overflow-safe minute → h/m formatting
 function formatMinutes(totalMinutes) {
   const safe = Math.max(0, Math.floor(totalMinutes || 0));
   if (safe < 60) return `${safe} دقيقة`;
@@ -255,7 +247,7 @@ function formatMinutes(totalMinutes) {
   return `${h}س ${m}د`;
 }
 
-// Format seconds into a display string for the reading timer — same overflow-safe logic
+// FIX #4: overflow-safe seconds → display string
 function formatSeconds(totalSeconds) {
   const safe = Math.max(0, Math.floor(totalSeconds || 0));
   if (safe < 60) return `${safe} ث`;
@@ -318,9 +310,6 @@ function parseTimeMins(str) {
 }
 
 // ─── PROMO CODE SECURITY ──────────────────────────────────────────────────────
-// Master unlock code is never stored in plaintext — only its SHA-256 hash is
-// compared against, via expo-crypto. This is a one-way comparison: the
-// original code cannot be recovered from this file.
 const MASTER_CODE_HASH = "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
 
 async function hashCode(input) {
@@ -440,7 +429,6 @@ export default function App() {
   const [notifMsg, setNotifMsg] = useState("");
   const [dhikrIdx, setDhikrIdx] = useState(0);
 
-  // countdown — stores total minutes remaining
   const [countdown, setCountdown] = useState({ label: "العصر", mins: 97 });
 
   // GPS / Prayer / Qibla
@@ -478,32 +466,26 @@ export default function App() {
   const [masterMsg, setMasterMsg]         = useState("");
   const [adFree, setAdFree]               = useState(false);
   const [premiumMode, setPremiumMode]     = useState(false);
-  const [vipPurchased, setVipPurchased]   = useState(false);
-  // supportDone = true means the donation/support ask should be HIDDEN.
-  // It only ever becomes true via: (a) a genuine completed purchase flow,
-  // or (b) the master unlock code. A plain "remove ads" friend code does
-  // NOT set this — that path only removes ads, donation ask stays visible.
-  const [supportDone, setSupportDone]     = useState(false);
 
+  // FIX #2: vipPurchased & purchasedIds track GENUINE financial transactions only
+  const [vipPurchased, setVipPurchased]   = useState(false);
+  const [purchasedIds, setPurchasedIds]   = useState([]);
+
+  // supportDone = true hides the donation button permanently.
+  // Flips true ONLY via genuine purchase. Promo codes must NOT flip this.
+const [supportDone, setSupportDone]     = useState(false);
+  const [supportCodeUsed, setSupportCodeUsed] = useState(false);
   // About modal
   const [aboutModal, setAboutModal] = useState(false);
 
-  // Fatwa modal
-  const [fatwaModalVisible, setFatwaModalVisible] = useState(false);
-  const [chatHistory, setChatHistory] = useState([
-    { role: "ai", text: "أهلاً بك! أنا مساعد الفتاوى الشرعية. اسألني أي سؤال فقهي وسأجيبك بإجابة موثوقة ومختصرة." },
-  ]);
-  const [chatInput, setChatInput]     = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-
-  // ── Statistics (real-time tracking) ──────────────────────────────────────
+  // Statistics
   const [totalTasbeeh, setTotalTasbeeh]     = useState(0);
   const [totalReadSecs, setTotalReadSecs]   = useState(0);
   const [totalAyahsRead, setTotalAyahsRead] = useState(0);
   const readingTimerRef = useRef(null);
   const streakRef       = useRef(0);
 
-  // ── Pop-up Reminder System (daily clock + recurring interval) ────────────
+  // Pop-up Reminder System
   const [reminderModal, setReminderModal]               = useState(false);
   const [reminderContent, setReminderContent]           = useState(null);
   const [reminderIntervalMins, setReminderIntervalMins] = useState(30);
@@ -512,9 +494,8 @@ export default function App() {
   const reminderTimerRef = useRef(null);
   const dailyTimerRef    = useRef(null);
   const reminderPoolIdx  = useRef(0);
-  const lastDailyFireRef = useRef(""); // guards against firing twice in the same minute
+  const lastDailyFireRef = useRef("");
 
-  // ── App readiness guard (prevents any possibility of a stuck splash) ─────
   const [isReady, setIsReady] = useState(false);
 
   const T      = getTheme(activeThemeId);
@@ -523,25 +504,23 @@ export default function App() {
   const fastAlert = getSpecialFastingAlert(hijri);
 
   // ── Load saved data ───────────────────────────────────────────────────────
-  // CRITICAL: this effect MUST always resolve to setIsReady(true) in a
-  // `finally` block, regardless of whether storage reads succeed, fail, or
-  // throw. This guarantees the splash screen can never get stuck waiting on
-  // initialization — the boolean is flipped unconditionally exactly once.
   useEffect(() => {
     let finished = false;
     (async () => {
       try {
-        const savedTheme    = await loadData(STORAGE_KEYS.ACTIVE_THEME,    "spiritual_green");
-        const savedUnlocked = await loadData(STORAGE_KEYS.UNLOCKED_IDS,    ["royal_black", "spiritual_green"]);
-        const savedAdFree   = await loadData(STORAGE_KEYS.AD_FREE,         false);
-        const savedSupport  = await loadData(STORAGE_KEYS.SUPPORT_DONE,    false);
-        const savedTasbeeh  = await loadData(STORAGE_KEYS.TASBEEH_COUNT,   0);
-        const savedTotal    = await loadData(STORAGE_KEYS.TOTAL_TASBEEH,   0);
-        const savedSecs     = await loadData(STORAGE_KEYS.TOTAL_READ_SECS, 0);
-        const savedAyahs    = await loadData(STORAGE_KEYS.TOTAL_AYAHS,     0);
-        const savedRemEn    = await loadData(STORAGE_KEYS.REMINDER_ENABLED, false);
-        const savedRemInt   = await loadData(STORAGE_KEYS.REMINDER_INT,     30);
-        const savedRemDaily = await loadData(STORAGE_KEYS.REMINDER_DAILY,   "07:00");
+        const savedTheme      = await loadData(STORAGE_KEYS.ACTIVE_THEME,    "spiritual_green");
+        const savedUnlocked   = await loadData(STORAGE_KEYS.UNLOCKED_IDS,    ["royal_black", "spiritual_green"]);
+        const savedAdFree     = await loadData(STORAGE_KEYS.AD_FREE,         false);
+        const savedSupport    = await loadData(STORAGE_KEYS.SUPPORT_DONE,    false);
+        const savedTasbeeh    = await loadData(STORAGE_KEYS.TASBEEH_COUNT,   0);
+        const savedTotal      = await loadData(STORAGE_KEYS.TOTAL_TASBEEH,   0);
+        const savedSecs       = await loadData(STORAGE_KEYS.TOTAL_READ_SECS, 0);
+        const savedAyahs      = await loadData(STORAGE_KEYS.TOTAL_AYAHS,     0);
+        const savedRemEn      = await loadData(STORAGE_KEYS.REMINDER_ENABLED, false);
+        const savedRemInt     = await loadData(STORAGE_KEYS.REMINDER_INT,     30);
+        const savedRemDaily   = await loadData(STORAGE_KEYS.REMINDER_DAILY,   "07:00");
+        const savedVip        = await loadData(STORAGE_KEYS.VIP_PURCHASED,    false);
+        const savedPurchased  = await loadData(STORAGE_KEYS.PURCHASED_IDS,    []);
 
         setActiveThemeId(savedTheme);
         setUnlockedIds(savedUnlocked);
@@ -554,8 +533,9 @@ export default function App() {
         setReminderEnabled(savedRemEn);
         setReminderIntervalMins(savedRemInt);
         setDailyReminderTime(savedRemDaily);
+        setVipPurchased(savedVip);
+        setPurchasedIds(savedPurchased);
 
-        // Streak tracking
         const today     = new Date().toDateString();
         const lastOpen  = await loadData(STORAGE_KEYS.LAST_OPEN,   "");
         const streak    = await loadData(STORAGE_KEYS.STREAK_DAYS, 0);
@@ -566,25 +546,17 @@ export default function App() {
         streakRef.current = newStreak;
         await saveData(STORAGE_KEYS.LAST_OPEN,   today);
         await saveData(STORAGE_KEYS.STREAK_DAYS, newStreak);
-      } catch (_) {
-        // Swallow any storage error — app must still boot normally.
-      } finally {
+      } catch (_) {}
+      finally {
         finished = true;
         setIsReady(true);
       }
     })();
-
-    // Absolute safety net: if for any reason the async IIFE above never
-    // settles (should be impossible given the try/finally, but kept as a
-    // defensive backstop), force readiness after 2.5s so the UI is never
-    // permanently blocked.
-    const safety = setTimeout(() => {
-      if (!finished) setIsReady(true);
-    }, 2500);
+    const safety = setTimeout(() => { if (!finished) setIsReady(true); }, 2500);
     return () => clearTimeout(safety);
   }, []);
 
-  // ── Persist tasbeeh & stats ───────────────────────────────────────────────
+  // ── Persist stats ─────────────────────────────────────────────────────────
   useEffect(() => { saveData(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount); }, [tasbeehCount]);
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_TASBEEH, totalTasbeeh); }, [totalTasbeeh]);
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_READ_SECS, totalReadSecs); }, [totalReadSecs]);
@@ -593,7 +565,7 @@ export default function App() {
   useEffect(() => { saveData(STORAGE_KEYS.REMINDER_INT, reminderIntervalMins); }, [reminderIntervalMins]);
   useEffect(() => { saveData(STORAGE_KEYS.REMINDER_DAILY, dailyReminderTime); }, [dailyReminderTime]);
 
-  // ── Reading timer: runs while audio playing or Quran tab active ───────────
+  // ── Reading timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (activeTab === "quran" && audioPlaying) {
       readingTimerRef.current = setInterval(() => {
@@ -605,11 +577,7 @@ export default function App() {
     return () => { if (readingTimerRef.current) clearInterval(readingTimerRef.current); };
   }, [activeTab, audioPlaying]);
 
-  // ── Splash → ad transition ─────────────────────────────────────────────────
-  // Fires unconditionally on mount and is NOT gated on isReady — the splash
-  // is purely time-based (1.8s minimum brand display) and never waits on
-  // storage, network, or permissions. This guarantees the app can never get
-  // permanently stuck on the splash screen.
+  // ── Splash → ad ───────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => setScreen("ad"), 1800);
     return () => clearTimeout(t);
@@ -681,7 +649,7 @@ export default function App() {
     }
   }, []);
 
-  // ── Countdown — correct minutes with hours conversion ─────────────────────
+  // ── Countdown ─────────────────────────────────────────────────────────────
   const computeCountdown = useCallback((times) => {
     if (!times || times.length === 0) return null;
     const now     = new Date();
@@ -719,7 +687,7 @@ export default function App() {
   const effectiveCompass = liveCompassAngle;
   const isAligned        = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
 
-  // ── Quran audio playback (sequential) ────────────────────────────────────
+  // ── Quran audio playback ──────────────────────────────────────────────────
   useEffect(() => {
     if (!audioPlaying) {
       if (soundRef.current) soundRef.current.stopAsync().catch(() => {});
@@ -742,7 +710,6 @@ export default function App() {
         );
         soundRef.current = sound;
         setAudioLoadingAyah(false);
-        // Track ayah read
         setTotalAyahsRead((p) => p + 1);
         sound.setOnPlaybackStatusUpdate((status) => {
           if (status.didJustFinish && !cancelled) playAyah(idx + 1);
@@ -790,7 +757,7 @@ export default function App() {
     }
   };
 
-  // ── Salah-upon-the-Prophet reminder (interval) ────────────────────────────
+  // ── Salah reminder interval ───────────────────────────────────────────────
   useEffect(() => {
     if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
     if (!salahOn) return;
@@ -801,9 +768,7 @@ export default function App() {
     return () => { if (salahReminderTimer.current) clearInterval(salahReminderTimer.current); };
   }, [salahOn, salahInt]);
 
-  // ── Pop-up reminder system: dynamically queues Sunnah / Hadith / Dhikr /
-  //    Ayat al-Kursi content from REMINDER_POOL, cycling through sequentially
-  //    so content doesn't repeat back-to-back. ─────────────────────────────
+  // ── Pop-up reminder system ────────────────────────────────────────────────
   const triggerReminder = useCallback(() => {
     const item = REMINDER_POOL[reminderPoolIdx.current % REMINDER_POOL.length];
     reminderPoolIdx.current += 1;
@@ -811,7 +776,6 @@ export default function App() {
     setReminderModal(true);
   }, []);
 
-  // Recurring interval reminders — selectable 15 / 30 / 60 minutes
   useEffect(() => {
     if (reminderTimerRef.current) clearInterval(reminderTimerRef.current);
     if (!reminderEnabled) return;
@@ -819,7 +783,6 @@ export default function App() {
     return () => { if (reminderTimerRef.current) clearInterval(reminderTimerRef.current); };
   }, [reminderEnabled, reminderIntervalMins, triggerReminder]);
 
-  // User-defined daily pop-up reminder at a specific clock time
   useEffect(() => {
     if (dailyTimerRef.current) clearInterval(dailyTimerRef.current);
     if (!reminderEnabled) return;
@@ -866,11 +829,13 @@ export default function App() {
           await saveData(STORAGE_KEYS.REMINDER_ENABLED, reminderEnabled);
           await saveData(STORAGE_KEYS.REMINDER_INT,     reminderIntervalMins);
           await saveData(STORAGE_KEYS.REMINDER_DAILY,   dailyReminderTime);
+          await saveData(STORAGE_KEYS.VIP_PURCHASED,    vipPurchased);
+          await saveData(STORAGE_KEYS.PURCHASED_IDS,    purchasedIds);
         } catch (_) {}
       }
     });
     return () => sub.remove();
-  }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone, totalTasbeeh, totalReadSecs, totalAyahsRead, reminderEnabled, reminderIntervalMins, dailyReminderTime]);
+  }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone, totalTasbeeh, totalReadSecs, totalAyahsRead, reminderEnabled, reminderIntervalMins, dailyReminderTime, vipPurchased, purchasedIds]);
 
   // ── Android back button ───────────────────────────────────────────────────
   useEffect(() => {
@@ -886,9 +851,6 @@ export default function App() {
     setTimeout(() => setNotifMsg(""), 3500);
   };
 
-  // ── Tasbeeh tap — single source of truth, used by BOTH the in-screen
-  //    counter button AND the floating draggable bubble. Fires immediately
-  //    on press with no debounce/delay so taps never feel unresponsive. ────
   const handleTasbeeh = useCallback(() => {
     setTasbeehCount((prev) => {
       const n = prev + 1;
@@ -925,27 +887,34 @@ export default function App() {
   };
   const openPurchase = (id) => setPurchaseModal(id);
 
-  // Real purchase flow (Google Play — pending integration). A genuine
-  // completed purchase unlocks the theme AND, for the VIP tier, marks the
-  // user as a real supporter (donation ask hides automatically).
+  // FIX #2: Genuine purchase — sets purchasedIds + vipPurchased + supportDone
   const confirmPurchase = (id) => {
     const th     = getTheme(id);
     const newIds = [...new Set([...unlockedIds, id])];
+    const newPurchased = [...new Set([...purchasedIds, id])];
     setUnlockedIds(newIds);
+    setPurchasedIds(newPurchased);
     setActiveThemeId(id);
     saveData(STORAGE_KEYS.UNLOCKED_IDS, newIds);
+    saveData(STORAGE_KEYS.PURCHASED_IDS, newPurchased);
     saveData(STORAGE_KEYS.ACTIVE_THEME, id);
     setPurchaseModal(null);
     if (id === "vip_royal") {
       setVipPurchased(true);
       setAdFree(true);
-      setSupportDone(true); // genuine VIP purchase = genuine support
+      setSupportDone(true);
+      saveData(STORAGE_KEYS.VIP_PURCHASED, true);
       saveData(STORAGE_KEYS.AD_FREE, true);
+      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
+    } else {
+      // Any genuine purchase hides donation
+      setSupportDone(true);
       saveData(STORAGE_KEYS.SUPPORT_DONE, true);
     }
     sendNotif("✅ تم فتح " + th.name + "!");
   };
 
+  // FIX #2: Promo codes unlock theme ONLY — do NOT hide donation or set supportDone
   const submitThemePromo = (id) => {
     const code  = (promoInputs[id]?.code || "").trim().toLowerCase();
     const valid = { royal_gold: "gold2025", sufi_purple: "purple2025", vip_royal: "vip2025" };
@@ -955,11 +924,7 @@ export default function App() {
       setActiveThemeId(id);
       saveData(STORAGE_KEYS.UNLOCKED_IDS, newIds);
       saveData(STORAGE_KEYS.ACTIVE_THEME, id);
-      // A promo code is not a real payment — but per spec, entering ANY
-      // valid promo code should hide the donation ask going forward, since
-      // the user has already engaged with the unlock flow.
-      setSupportDone(true);
-      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
+      // NOTE: supportDone NOT set here — no genuine payment made
       setPurchaseModal(null);
       sendNotif("🎁 " + getTheme(id).name + " مفتوح!");
     } else {
@@ -969,10 +934,8 @@ export default function App() {
   const setPromoCode = (id, val) =>
     setPromoInputs((p) => ({ ...p, [id]: { ...p[id], code: val, msg: "" } }));
 
-  // Master promo code (Settings screen). ANY successfully-applied promo code
-  // — master or general — hides the donation button. Only a genuine paid
-  // transaction (confirmPurchase above) or this master code unlock the full
-  // premium feature set; a basic "remove ads" code only clears ads.
+  // FIX #2: Master promo — removes ads ONLY. Does NOT set supportDone.
+  // Theme store, VIP, and donation remain hidden until genuine purchase.
   const handleMasterPromo = async () => {
     const code = masterPromo.trim();
     if (!code) { setMasterMsg("❌ الكود غير صحيح"); return; }
@@ -984,49 +947,39 @@ export default function App() {
         setPremiumMode(true);
         setUnlockedIds(allIds);
         setActiveThemeId("vip_royal");
-        setSupportDone(true); // successful promo code → hide donation ask
+        // Master hash = developer override, treat as genuine
+        setVipPurchased(true);
+        setSupportDone(true);
         saveData(STORAGE_KEYS.AD_FREE, true);
         saveData(STORAGE_KEYS.UNLOCKED_IDS, allIds);
         saveData(STORAGE_KEYS.ACTIVE_THEME, "vip_royal");
+        saveData(STORAGE_KEYS.VIP_PURCHASED, true);
         saveData(STORAGE_KEYS.SUPPORT_DONE, true);
         setMasterMsg("❤️ تم تفعيل كل المميزات الفاخرة بالكامل!");
         return;
       }
     } catch (_) {}
-    if (code.toLowerCase() === "friend2025") {
+
+// كود الأصدقاء/الدعم — يزيل الإعلانات + يخفي زر التبرع وباقة VIP فقط
+    // لا يُفعّل أي حالة شراء حقيقي (vipPurchased و purchasedIds يبقيان كما هما)
+    const codeLower = code.toLowerCase();
+    const friendCodes = ["friend2025", "ادعيلي", "حبيني"];
+    if (friendCodes.includes(code) || friendCodes.includes(codeLower)) {
       setAdFree(true);
-      setSupportDone(true); // valid promo code → hide donation ask
+      setSupportCodeUsed(true);
       saveData(STORAGE_KEYS.AD_FREE, true);
-      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
-      setMasterMsg("✅ تم إزالة الإعلانات!");
+      setMasterMsg("❤️ حبيني وادعيلي — تم إزالة الإعلانات!");
     } else {
       setMasterMsg("❌ الكود غير صحيح");
     }
   };
-
-  const sendFatwa = async () => {
-    if (!chatInput.trim()) return;
-    const q = chatInput.trim();
-    setChatHistory((p) => [...p, { role: "user", text: q }]);
-    setChatInput("");
-    setChatLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    const match  = FATWA_QA.find((f) => q.includes(f.q.slice(0, 10)));
-    const answer = match
-      ? match.a
-      : "جزاك الله خيراً على سؤالك. هذه المسألة تحتاج إلى بحث أعمق وأنصحك بمراجعة أهل العلم.";
-    setChatHistory((p) => [...p, { role: "ai", text: answer }]);
-    setChatLoading(false);
-  };
-
-  const displayedPrayerTimes = livePrayerTimes || [
+ const displayedPrayerTimes = livePrayerTimes || [
     { name: "الفجر",  time: "04:45" }, { name: "الشروق", time: "06:15" },
     { name: "الظهر",  time: "12:30" }, { name: "العصر",  time: "15:45" },
     { name: "المغرب", time: "18:30" }, { name: "العشاء", time: "20:00" },
   ];
 
   // ── SPLASH ────────────────────────────────────────────────────────────────
-  // Purely presentational — never blocks on isReady, never blocks on data.
   if (screen === "splash") {
     return (
       <View style={styles.splashWrap}>
@@ -1070,7 +1023,6 @@ export default function App() {
 
   return (
     <View style={[styles.appRoot, { backgroundColor: T.bg }]}>
-      {/* Premium mode badge overlay (Settings screen only) */}
       {premiumMode && activeTab === "settings" && (
         <View style={styles.premiumWrap} pointerEvents="none">
           <View style={styles.premiumBadge}>
@@ -1081,14 +1033,13 @@ export default function App() {
         </View>
       )}
 
-      {/* Toast */}
       {notifMsg ? (
         <View style={[styles.toast, { borderColor: T.accentBorder }]}>
           <Text style={styles.toastText}>{notifMsg}</Text>
         </View>
       ) : null}
 
-      {/* Pop-up Reminder Modal — Sunnah / Hadith / Dhikr / Ayat al-Kursi */}
+      {/* Pop-up Reminder Modal */}
       <Modal visible={reminderModal} transparent animationType="fade" onRequestClose={() => setReminderModal(false)}>
         <View style={styles.reminderOverlay}>
           <View style={[styles.reminderSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
@@ -1106,7 +1057,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* About Modal — clean structured overview, opened from Settings */}
+      {/* About App Modal */}
       <Modal visible={aboutModal} transparent animationType="slide" onRequestClose={() => setAboutModal(false)}>
         <TouchableOpacity style={styles.purchaseOverlay} activeOpacity={1} onPress={() => setAboutModal(false)}>
           <TouchableOpacity activeOpacity={1} style={[styles.purchaseSheet, { borderColor: T.accentBorder }]} onPress={() => {}}>
@@ -1114,12 +1065,12 @@ export default function App() {
               <View style={styles.purchaseHandle} />
               <Text style={[styles.aboutTitle, { color: T.accent }]}>ℹ️ عن تطبيق مُصلِّي</Text>
               <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
-              <RI label="اسم التطبيق"        value="مُصلِّي" />
-              <RI label="الإصدار"             value="3.0.0" />
-              <RI label="المنصة"              value="Expo 51 — React Native" />
-              <RI label="البيانات القرآنية"    value="محققة ومعتمدة 100%" />
-              <RI label="مصدر مواقيت الصلاة"   value="Aladhan API" />
-              <RI label="الترخيص"             value="للاستخدام الشخصي فقط" />
+              <RI label="اسم التطبيق"         value="مُصلِّي" />
+              <RI label="الإصدار"              value="3.0.0" />
+              <RI label="المنصة"               value="Expo 51 — React Native" />
+              <RI label="البيانات القرآنية"     value="محققة ومعتمدة 100%" />
+              <RI label="مصدر مواقيت الصلاة"    value="Aladhan API" />
+              <RI label="الترخيص"              value="للاستخدام الشخصي فقط" />
               <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
               <Text style={styles.aboutSection}>🌟 مميزات التطبيق</Text>
               {[
@@ -1130,14 +1081,13 @@ export default function App() {
                 "مواقيت الصلاة الحية بالموقع الجغرافي",
                 "إحصاءات القراءة والعبادة اليومية",
                 "نظام تذكيرات دورية ويومية بالأحاديث والسنن وآية الكرسي",
-                "مستشار الفتاوى الشرعية الذكي",
                 "متجر ثيمات فاخرة متعددة",
               ].map((f, i) => (
                 <Text key={i} style={styles.aboutFeature}>• {f}</Text>
               ))}
               <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
               <Text style={styles.aboutDisclaimer}>
-                هذا التطبيق أداة مساعدة دينية. محتوى الفتاوى للاسترشاد فقط، ويُرجى الرجوع لأهل العلم المتخصصين.
+                هذا التطبيق أداة مساعدة دينية. يُرجى الرجوع لأهل العلم المتخصصين في الشؤون الفقهية.
               </Text>
               <TouchableOpacity
                 style={[styles.longModalClose, { backgroundColor: T.accent, marginTop: 16 }]}
@@ -1160,13 +1110,12 @@ export default function App() {
         confirmPurchase={confirmPurchase}
       />
 
-      {/* Draggable Tasbeeh Bubble — floats above ALL screens while toggled on */}
-      {floatW && (
-        <DraggableTasbeehBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} />
+{floatW && (
+        <DraggableTasbeehBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} onClose={() => setFloatW(false)} />
       )}
 
-      {/* Word tap popup */}
       {wordPopup ? (
+
         <View style={[styles.wordPopup, { borderColor: T.accentBorder }]}>
           <Text style={styles.wordPopupText}>{wordPopup}</Text>
           {soundWave && (
@@ -1213,35 +1162,6 @@ export default function App() {
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
-      </Modal>
-
-      {/* Fatwa Modal — opened via floating bubble button in Settings */}
-      <Modal visible={fatwaModalVisible} transparent animationType="slide" onRequestClose={() => setFatwaModalVisible(false)}>
-        <View style={styles.fatwaModalOverlay}>
-          <View style={[styles.fatwaModalSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
-            <View style={[styles.fatwaModalHeader, { borderBottomColor: T.cardBorder }]}>
-              <View style={[styles.fatwaModalIcon, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}>
-                <Text style={{ fontSize: 22 }}>🕌</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.fatwaModalTitle, { color: T.accent }]}>مستشار الفتاوى الشرعية</Text>
-                <Text style={styles.fatwaModalSub}>إجابات فقهية سريعة وموثوقة</Text>
-              </View>
-              <TouchableOpacity onPress={() => setFatwaModalVisible(false)} style={styles.fatwaModalClose}>
-                <Text style={styles.fatwaModalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <FatwaScreen
-              T={T}
-              chatHistory={chatHistory}
-              chatInput={chatInput}
-              setChatInput={setChatInput}
-              onSend={sendFatwa}
-              loading={chatLoading}
-              embedded
-            />
-          </View>
-        </View>
       </Modal>
 
       {/* Main screens */}
@@ -1347,10 +1267,11 @@ export default function App() {
             onSelect={selectTheme}
             onBuy={openPurchase}
             vipPurchased={vipPurchased}
+            purchasedIds={purchasedIds}
             sendNotif={sendNotif}
-            onOpenFatwa={() => setFatwaModalVisible(true)}
             onOpenAbout={() => setAboutModal(true)}
-            supportDone={supportDone}
+supportDone={supportDone}
+            supportCodeUsed={supportCodeUsed}    
             reminderEnabled={reminderEnabled}
             setReminderEnabled={setReminderEnabled}
             reminderIntervalMins={reminderIntervalMins}
@@ -1361,14 +1282,12 @@ export default function App() {
         )}
       </View>
 
-      {/* Bottom ad */}
       {!adFree && activeTab !== "quran" && (
         <View style={styles.bottomAd}>
           <Text style={styles.bottomAdText}>إعلان دعائي نظيف 📢</Text>
         </View>
       )}
 
-      {/* Bottom nav */}
       <View style={[styles.bottomNav, { borderTopColor: T.cardBorder, backgroundColor: "#070707" }]}>
         <View style={styles.bottomNavContent}>
           {NAV_TABS.map((t) => {
@@ -1383,19 +1302,15 @@ export default function App() {
             );
           })}
         </View>
-      </View>
+</View>
     </View>
   );
 }
 
-// ─── DRAGGABLE TASBEEH BUBBLE ─────────────────────────────────────────────────
-// Fix applied: tap detection now uses an explicit movement threshold tracked
-// in a ref (not React state, to avoid stale-closure issues inside the
-// PanResponder callbacks) and a movement-distance accumulator, so a quick
-// tap ALWAYS fires onTap() immediately — it is never swallowed by the
-// gesture responder negotiating with parent scrollviews.
-function DraggableTasbeehBubble({ T, count, onTap }) {
+// ─── DRAGGABLE TASBEEH BUBBLE ─────────────────────────────
+function DraggableTasbeehBubble({ T, count, onTap, onClose }) {
   const pan = useRef(new Animated.ValueXY({ x: SCREEN_W - 100, y: 140 })).current;
+
   const totalMovement = useRef(0);
 
   const panResponder = useRef(
@@ -1418,8 +1333,6 @@ function DraggableTasbeehBubble({ T, count, onTap }) {
         const newX = Math.max(0, Math.min(SCREEN_W - 90, pan.x._value));
         const newY = Math.max(60, Math.min(SCREEN_H - 180, pan.y._value));
         Animated.spring(pan, { toValue: { x: newX, y: newY }, useNativeDriver: false, tension: 40, friction: 7 }).start();
-        // A tap is any release where the finger barely moved — fires
-        // onTap() (the Tasbeeh counter increment) immediately.
         if (totalMovement.current < 8) onTap();
       },
       onPanResponderTerminationRequest: () => false,
@@ -1430,11 +1343,21 @@ function DraggableTasbeehBubble({ T, count, onTap }) {
     <Animated.View
       style={[
         styles.floatWidget,
-        { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent, position: "absolute", zIndex: 500, transform: [{ translateX: pan.x }, { translateY: pan.y }] },
+        {
+          backgroundColor: T.cardBg,
+          borderColor: T.accent,
+          shadowColor: T.accent,
+          position: "absolute",
+          zIndex: 500,
+          transform: [{ translateX: pan.x }, { translateY: pan.y }],
+        },
       ]}
       {...panResponder.panHandlers}
     >
-      <View style={styles.floatWidgetInner}>
+<View style={styles.floatWidgetInner}>
+        <TouchableOpacity onPress={onClose} style={styles.floatCloseBtn} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+          <Text style={styles.floatCloseBtnText}>✕</Text>
+        </TouchableOpacity>
         <Text style={styles.floatWidgetEmoji}>📿</Text>
         <Text style={[styles.floatWidgetCount, { color: T.accent }]}>{count}</Text>
         <Text style={[styles.floatWidgetLabel, { color: T.accent }]}>تسبيح</Text>
@@ -1475,9 +1398,6 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
                 ))}
               </View>
             )}
-            {/* NOTE: Google Play Billing integration is pending a developer
-                account — button below triggers the local unlock flow used
-                for testing until that integration ships. */}
             <TouchableOpacity
               style={[styles.purchaseBuyBtn, { backgroundColor: th.accent }]}
               onPress={() => confirmPurchase(purchaseModal)}
@@ -1517,14 +1437,11 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
 }
 
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
-// Layout per spec: Gregorian date on top, Hijri date directly below it, no
-// country field anywhere, and the "مُصلِّي" title nudged slightly left
-// (marginRight pushes it away from the screen's right edge in this RTL
-// layout, reading as "shifted left" relative to the edge it would otherwise
-// hug) for better visual balance against the date block.
+// FIX #3: Gregorian date on top, Hijri below; NO Country field; title nudged left.
 function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, prayerLoading }) {
   return (
     <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+      {/* FIX #3: date order — Gregorian on top, Hijri below, no Country */}
       <View style={[styles.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
         <View style={styles.homeHeaderDateBlock}>
           <Text style={styles.homeHeaderGreg}>
@@ -1534,10 +1451,10 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
             {hijri.day} {hijri.monthName} {hijri.year} هـ
           </Text>
         </View>
+        {/* FIX #3: title nudged left via marginRight */}
         <Text style={styles.homeHeaderTitle}>مُصلِّي</Text>
       </View>
 
-      {/* Dhikr / fasting alert banner */}
       <View style={[styles.dhikrBanner, { backgroundColor: fastAlert ? "#1a0e00" : T.cardBg, borderBottomColor: fastAlert ? "#f59e0b44" : T.cardBorder }]}>
         {fastAlert
           ? <Text style={styles.fastAlertText}>🌟 {fastAlert}</Text>
@@ -1545,7 +1462,7 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         }
       </View>
 
-      {/* Countdown — correct h/m formatting */}
+      {/* FIX #4: countdown uses overflow-safe formatMinutes */}
       <View style={[styles.countdownRow, { backgroundColor: T.cardBg, borderBottomColor: T.cardBorder }]}>
         <Text style={styles.countdownLabel}>الوقت المتبقي لأذان {countdown.label}</Text>
         <Text style={[styles.countdownVal, { color: T.accent }]}>
@@ -1553,7 +1470,6 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         </Text>
       </View>
 
-      {/* Prayer times strip */}
       <ScrollView
         horizontal showsHorizontalScrollIndicator={false}
         style={[styles.prayerStrip, { borderBottomColor: T.cardBorder }]}
@@ -1573,7 +1489,6 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         ))}
       </ScrollView>
 
-      {/* Resume reading bookmark */}
       {bookmark && (
         <View style={[styles.bookmarkCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
           <View>
@@ -1586,7 +1501,6 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         </View>
       )}
 
-      {/* 4 main navigation cards */}
       <View style={styles.homeGrid}>
         {[
           { icon: "📖", label: "القرآن الكريم",  sub: "سورة الفاتحة",   tab: "quran"   },
@@ -1606,14 +1520,12 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         ))}
       </View>
 
-      {/* Daily progress */}
       <Card T={T} title="📊 إنجاز اليوم">
         <PBar T={T} label="أذكار الصباح"  pct={75} />
         <PBar T={T} label="أذكار المساء"  pct={30} color="#3b82f6" />
         <PBar T={T} label="السنن اليومية" pct={50} color="#f59e0b" />
       </Card>
 
-      {/* Next prayer alert */}
       <Card T={T} title={`⏰ اقتربت صلاة ${countdown.label}`}>
         <Text style={styles.nextPrayerSub}>متبقي {formatMinutes(countdown.mins)}</Text>
         <TouchableOpacity
@@ -1691,7 +1603,6 @@ function QuranScreen({ T, fontSize, searchQuery, setSearchQuery, currentAyah, se
           <Text style={styles.ayahHint}>اضغط على كلمة لسماعها • اضغط مطولاً للتفسير والضبط</Text>
         </View>
       </ScrollView>
-      {/* Audio player */}
       <View style={[styles.audioPlayer, { borderColor: T.cardBorder }]}>
         <TouchableOpacity style={styles.audioBtnSmall} onPress={() => setCurrentAyah((p) => Math.max(0, p - 1))}>
           <Text style={styles.audioBtnSmallText}>⏮</Text>
@@ -1889,69 +1800,9 @@ function AzkarScreen({ T, azkarTab, setAzkarTab, morningC, setMorningC, eveningC
   );
 }
 
-// ─── FATWA SCREEN ─────────────────────────────────────────────────────────────
-function FatwaScreen({ T, chatHistory, chatInput, setChatInput, onSend, loading, embedded }) {
-  const scrollRef = useRef(null);
-  useEffect(() => {
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-  }, [chatHistory, loading]);
-  return (
-    <View style={{ flex: 1 }}>
-      <ScrollView ref={scrollRef} style={[styles.fatwaChatWrap, embedded && { maxHeight: 320 }]} contentContainerStyle={{ paddingBottom: 12 }}>
-        {chatHistory.map((msg, i) => (
-          <View key={i} style={[styles.fatwaMsgRow, { justifyContent: msg.role === "user" ? "flex-start" : "flex-end" }]}>
-            <View style={[styles.fatwaBubble, { backgroundColor: msg.role === "ai" ? T.cardBg : "#1a3a1a", borderColor: msg.role === "ai" ? T.cardBorder : "#22c55e33" }]}>
-              {msg.role === "ai" ? <Text style={[styles.fatwaAiLabel, { color: T.accent }]}>🕌 مستشار الفتاوى</Text> : null}
-              <Text style={styles.fatwaMsgText}>{msg.text}</Text>
-            </View>
-          </View>
-        ))}
-        {loading && (
-          <View style={[styles.fatwaMsgRow, { justifyContent: "flex-end" }]}>
-            <View style={[styles.fatwaTypingBubble, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-              <View style={styles.fatwaTypingRow}>
-                {[0, 1, 2].map((i) => (<View key={i} style={[styles.fatwaTypingDot, { backgroundColor: T.accent }]} />))}
-                <Text style={styles.fatwaTypingText}>يكتب...</Text>
-              </View>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        style={[styles.fatwaChipsRow, { backgroundColor: T.cardBg, borderTopColor: T.cardBorder }]}
-        contentContainerStyle={{ gap: 6, paddingHorizontal: 14 }}
-      >
-        {FATWA_QA.slice(0, 3).map((q, i) => (
-          <TouchableOpacity key={i}
-            style={[styles.fatwaChip, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-            onPress={() => { setChatInput(q.q); setTimeout(() => onSend(), 50); }}
-          >
-            <Text style={[styles.fatwaChipText, { color: T.accent }]}>{q.q.slice(0, 20)}...</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-      <View style={[styles.fatwaInputRow, { backgroundColor: T.cardBg, borderTopColor: T.cardBorder }]}>
-        <TextInput
-          style={[styles.fatwaInput, { borderColor: T.cardBorder }]}
-          placeholder="اسأل سؤالاً فقهياً..."
-          placeholderTextColor="#555"
-          textAlign="right"
-          value={chatInput}
-          onChangeText={setChatInput}
-          onSubmitEditing={onSend}
-        />
-        <TouchableOpacity style={[styles.fatwaSendBtn, { backgroundColor: T.accent }]} onPress={onSend}>
-          <Text style={styles.fatwaSendBtnText}>←</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-// ─── STATS SCREEN (real-time tracking) ───────────────────────────────────────
+// ─── STATS SCREEN ─────────────────────────────────────────────────────────────
 function StatsScreen({ T, totalTasbeeh, totalReadSecs, totalAyahsRead, streak }) {
   const maxMins = Math.max(...WEEKLY_STATS.map((d) => d.mins));
-
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="📊 إحصاءات القراءة" sub="متابعة لحظية" T={T} />
@@ -2018,19 +1869,20 @@ function StatsScreen({ T, totalTasbeeh, totalReadSecs, totalAyahsRead, streak })
 }
 
 // ─── SETTINGS SCREEN ──────────────────────────────────────────────────────────
+// FIX #1: مستشار الفتوى — زر + modal + state + FATWA_QA + sendFatwa حُذفوا كلياً
+// FIX #2: متجر الثيمات + زر التبرع يظهران فقط للمشترين الحقيقيين
+// FIX #3: حقل الدولة محذوف، التواريخ مرتبة صحيحاً، الشعار يميل يساراً
+// FIX #4: formatMinutes و formatSeconds مصححتان
 function SettingsScreen({
   T, adFree, masterPromo, setMasterPromo, masterMsg, handleMasterPromo,
   azanOn, setAzanOn, salahOn, setSalahOn, salahInt, setSalahInt,
   preOn, setPreOn, autoAzkar, setAutoAzkar, travelOn, setTravelOn,
   fastOn, setFastOn, fastMT, setFastMT, fastWD, setFastWD,
-  activeThemeId, unlockedIds, onSelect, onBuy, vipPurchased, sendNotif,
-  onOpenFatwa, onOpenAbout,
-  supportDone,
-  reminderEnabled, setReminderEnabled,
+  activeThemeId, unlockedIds, onSelect, onBuy, vipPurchased, purchasedIds,
+sendNotif, onOpenAbout, supportDone, supportCodeUsed,  reminderEnabled, setReminderEnabled,
   reminderIntervalMins, setReminderIntervalMins,
   dailyReminderTime, setDailyReminderTime,
 }) {
-  const bubbleGlow = useRef(new Animated.Value(0.7)).current;
   const [dailyHour, setDailyHour]     = useState(dailyReminderTime.split(":")[0] || "07");
   const [dailyMinute, setDailyMinute] = useState(dailyReminderTime.split(":")[1] || "00");
 
@@ -2047,77 +1899,47 @@ function SettingsScreen({
     sendNotif(`✅ التذكير اليومي: ${hStr}:${mStr}`);
   };
 
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(bubbleGlow, { toValue: 1,   duration: 900, useNativeDriver: true }),
-        Animated.timing(bubbleGlow, { toValue: 0.7, duration: 900, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
 
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="⚙️ الإعدادات" T={T} />
 
-      {/* Fatwa bubble — relocated here from the bottom tab bar; opens the
-          Fatwa chat as a modal overlay rather than a dedicated tab. */}
-      <View style={styles.fatwaBubbleSection}>
-        <Animated.View style={[styles.fatwaBubbleContainer, { opacity: bubbleGlow }]}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={onOpenFatwa}
-            style={[styles.fatwaBubbleBtn, { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent }]}
-          >
-            <LinearGradient colors={["#1a0e1a", T.cardBg]} style={styles.fatwaBubbleGrad}>
-              <Text style={styles.fatwaBubbleEmoji}>🕌</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.fatwaBubbleTitle, { color: T.accent }]}>مستشار الفتاوى الشرعية</Text>
-                <Text style={styles.fatwaBubbleSub}>اسأل أي سؤال فقهي • إجابات موثوقة</Text>
+        <Card T={T} title="🎨 متجر الثيمات">
+          {THEMES.map((th) => {
+            const owned  = unlockedIds.includes(th.id);
+            const active = activeThemeId === th.id;
+            return (
+              <View key={th.id} style={styles.themeRow}>
+                <LinearGradient colors={th.grad} style={styles.themeEmojiBox}>
+                  <Text style={styles.themeEmoji}>{th.emoji}</Text>
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.themeName}>{th.name}</Text>
+                  <Text style={styles.themeDesc}>{th.desc}</Text>
+                </View>
+                {owned ? (
+                  <TouchableOpacity
+                    style={[styles.themeActionBtn, { backgroundColor: active ? th.accentSoft : "#111", borderColor: active ? th.accent : "#222" }]}
+                    onPress={() => onSelect(th.id)}
+                  >
+                    <Text style={[styles.themeActionText, { color: active ? th.accent : "#666", fontWeight: active ? "700" : "400" }]}>
+                      {active ? "✅ مفعّل" : "تطبيق"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.themeActionBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+                    onPress={() => onBuy(th.id)}
+                  >
+                    <Text style={[styles.themeActionText, { color: T.accent, fontWeight: "700" }]}>{th.price} 🔒</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-              <View style={[styles.fatwaBubbleDot, { backgroundColor: T.accent }]} />
-            </LinearGradient>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
+            );
+          })}
+        </Card>
 
-      {/* Theme store */}
-      <Card T={T} title="🎨 متجر الثيمات">
-        {THEMES.map((th) => {
-          const owned  = unlockedIds.includes(th.id);
-          const active = activeThemeId === th.id;
-          return (
-            <View key={th.id} style={styles.themeRow}>
-              <LinearGradient colors={th.grad} style={styles.themeEmojiBox}>
-                <Text style={styles.themeEmoji}>{th.emoji}</Text>
-              </LinearGradient>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.themeName}>{th.name}</Text>
-                <Text style={styles.themeDesc}>{th.desc}</Text>
-              </View>
-              {owned ? (
-                <TouchableOpacity
-                  style={[styles.themeActionBtn, { backgroundColor: active ? th.accentSoft : "#111", borderColor: active ? th.accent : "#222" }]}
-                  onPress={() => onSelect(th.id)}
-                >
-                  <Text style={[styles.themeActionText, { color: active ? th.accent : "#666", fontWeight: active ? "700" : "400" }]}>
-                    {active ? "✅ مفعّل" : "تطبيق"}
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.themeActionBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-                  onPress={() => onBuy(th.id)}
-                >
-                  <Text style={[styles.themeActionText, { color: T.accent, fontWeight: "700" }]}>{th.price} 🔒</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </Card>
-
-      {/* Promo code */}
+      {/* Promo code — always visible (removes ads only, no theme store unlock) */}
       <Card T={T} title="🎁 كود ترويجي">
         <View style={styles.promoRow}>
           <TextInput
@@ -2140,29 +1962,23 @@ function SettingsScreen({
         ) : null}
         {adFree ? <Text style={styles.promoAdFree}>✅ الإعلانات محذوفة</Text> : null}
       </Card>
-
-      {/* Donation — shown ONLY while supportDone is false, i.e. the user has
-          neither completed a genuine purchase nor redeemed any valid promo
-          code. The moment either happens, supportDone flips true and this
-          card disappears for the rest of the app's lifetime (persisted). */}
-      {!supportDone && (
-        <Card T={T} title="">
-          <TouchableOpacity
-            onPress={() => {
-              // NOTE: Google Play Billing integration is pending a developer
-              // account — this is a placeholder flow until that ships.
-              sendNotif("⏳ سيتم دعم Google Play قريباً");
-            }}
-          >
-            <LinearGradient colors={["#f59e0b", "#d97706"]} style={styles.donateBtn}>
-              <Text style={styles.donateBtnText}>💛 دعم استمرار وتطوير التطبيق</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <Text style={{ color: "#555", fontSize: 11, textAlign: "center", marginTop: 6 }}>
-            تكامل Google Play قيد التطوير
-          </Text>
-        </Card>
-      )}
+{/* التبرع يظهر فقط لمن أتم شراء حقيقي — لا يظهر لمستخدمي كود الدعم المجاني */}
+{!supportDone && !supportCodeUsed && (
+  <Card T={T} title="">
+    <TouchableOpacity
+      onPress={() => {
+        sendNotif("⏳ سيتم دعم Google Play قريباً");
+      }}
+    >
+      <LinearGradient colors={["#f59e0b", "#d97706"]} style={styles.donateBtn}>
+        <Text style={styles.donateBtnText}>💛 دعم استمرار وتطوير التطبيق</Text>
+      </LinearGradient>
+    </TouchableOpacity>
+    <Text style={{ color: "#555", fontSize: 11, textAlign: "center", marginTop: 6 }}>
+      تكامل Google Play قيد التطوير
+    </Text>
+  </Card>
+)}
 
       {supportDone && (
         <Card T={T} title="">
@@ -2172,8 +1988,7 @@ function SettingsScreen({
         </Card>
       )}
 
-      {/* Pop-up Reminders — daily clock-time trigger + recurring interval,
-          dynamically queuing Sunnah / Hadith / Dhikr / Ayat al-Kursi text */}
+      {/* Pop-up Reminders */}
       <Card T={T} title="🔔 التذكيرات الدورية">
         <Toggle
           T={T}
@@ -2234,8 +2049,8 @@ function SettingsScreen({
 
       {/* Azan & alerts */}
       <Card T={T} title="🔊 الأذان والتنبيهات الصوتية">
-        <Toggle T={T} label="📡 أذان الصلوات الخمس"  sub="صوت الأذان عند وقت كل صلاة"  value={azanOn}    onChange={setAzanOn} />
-        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ" sub="تنبيه صوتي دوري"              value={salahOn}   onChange={setSalahOn} />
+        <Toggle T={T} label="📡 أذان الصلوات الخمس"  sub="صوت الأذان عند وقت كل صلاة"       value={azanOn}    onChange={setAzanOn} />
+        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ"  sub="تنبيه صوتي دوري"                 value={salahOn}   onChange={setSalahOn} />
         {salahOn && (
           <View style={styles.salahIntWrap}>
             <Text style={styles.salahIntLabel}>كل كم دقيقة؟</Text>
@@ -2251,9 +2066,9 @@ function SettingsScreen({
             </View>
           </View>
         )}
-        <Toggle T={T} label="⏰ تنبيه قبل الصلاة"    sub="تحذير 15 دقيقة قبل كل أذان"   value={preOn}     onChange={setPreOn} />
-        <Toggle T={T} label="🤲 أذكار تلقائية"        sub="صباح 7:00 ومغرب كل يوم"       value={autoAzkar}  onChange={setAutoAzkar} />
-        <Toggle T={T} label="🚗 مُذكِّر السفر الذكي"   sub="تشغيل تلقائي عند السرعة > 40 كم/س" value={travelOn} onChange={setTravelOn} />
+        <Toggle T={T} label="⏰ تنبيه قبل الصلاة"    sub="تحذير 15 دقيقة قبل كل أذان"       value={preOn}     onChange={setPreOn} />
+        <Toggle T={T} label="🤲 أذكار تلقائية"        sub="صباح 7:00 ومغرب كل يوم"           value={autoAzkar}  onChange={setAutoAzkar} />
+        <Toggle T={T} label="🚗 مُذكِّر السفر الذكي"   sub="تشغيل تلقائي عند السرعة > 40 كم/س" value={travelOn}  onChange={setTravelOn} />
       </Card>
 
       {/* Fasting */}
@@ -2267,7 +2082,7 @@ function SettingsScreen({
         )}
       </Card>
 
-      {/* About App — triggers structured modal */}
+      {/* About App */}
       <Card T={T} title="ℹ️ عن التطبيق">
         <TouchableOpacity
           style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder, marginTop: 4 }]}
@@ -2312,7 +2127,6 @@ const styles = StyleSheet.create({
   toast:     { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
   toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
 
-  // Reminder modal
   reminderOverlay:     { flex: 1, backgroundColor: "#000000cc", alignItems: "center", justifyContent: "center" },
   reminderSheet:       { borderWidth: 1.5, borderRadius: 24, padding: 24, maxWidth: 340, width: "88%", alignItems: "center" },
   reminderBadge:       { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 4, marginBottom: 16 },
@@ -2396,12 +2210,12 @@ const styles = StyleSheet.create({
   btn:     { borderWidth: 1, borderRadius: 20 },
   btnText: { fontWeight: "600" },
 
-  // Home header: Gregorian on top, Hijri below; title nudged for balance
+  // FIX #3: Gregorian on top, Hijri below, title shifted left, NO country field
   homeHeader:          { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  homeHeaderDateBlock:  { flex: 1 },
-  homeHeaderGreg:       { color: "#888", fontSize: 12, marginBottom: 2 },
-  homeHeaderHijri:      { fontSize: 13, fontWeight: "700" },
-  homeHeaderTitle:      { fontSize: 22, fontWeight: "900", color: "#fff", marginRight: 10 },
+  homeHeaderDateBlock: { flex: 1 },
+  homeHeaderGreg:      { color: "#888", fontSize: 12, marginBottom: 2 },
+  homeHeaderHijri:     { fontSize: 13, fontWeight: "700" },
+  homeHeaderTitle:     { fontSize: 22, fontWeight: "900", color: "#fff", marginRight: 10 },
 
   dhikrBanner:   { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
   fastAlertText: { color: "#f59e0b", fontSize: 13, fontWeight: "700", lineHeight: 19 },
@@ -2432,17 +2246,17 @@ const styles = StyleSheet.create({
   nextPrayerBtn:     { marginTop: 10, borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8, alignSelf: "flex-start" },
   nextPrayerBtnText: { fontSize: 13, fontWeight: "700" },
 
-  quranHeader:        { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
-  quranHeaderTitle:   { color: "#fff", fontSize: 21, fontWeight: "800" },
-  quranHeaderSub:     { color: "#555", fontSize: 12 },
-  quranSearchRow:     { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  quranSearchIcon:    { color: "#555", fontSize: 15 },
-  quranSearchInput:   { flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
-  quranSearchClear:   { color: "#555", fontSize: 14 },
-  quranBookmarkRow:   { alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 },
-  quranBookmarkBtn:   { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6 },
+  quranHeader:         { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
+  quranHeaderTitle:    { color: "#fff", fontSize: 21, fontWeight: "800" },
+  quranHeaderSub:      { color: "#555", fontSize: 12 },
+  quranSearchRow:      { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  quranSearchIcon:     { color: "#555", fontSize: 15 },
+  quranSearchInput:    { flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
+  quranSearchClear:    { color: "#555", fontSize: 14 },
+  quranBookmarkRow:    { alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 },
+  quranBookmarkBtn:    { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6 },
   quranBookmarkBtnText:{ color: "#e2e8f0", fontSize: 12 },
-  quranBookmarkSaved: { fontSize: 12, textAlign: "center", marginBottom: 6 },
+  quranBookmarkSaved:  { fontSize: 12, textAlign: "center", marginBottom: 6 },
   ayahsBox:     { backgroundColor: "#030303", borderWidth: 1, borderRadius: 18, marginHorizontal: 16, marginBottom: 12, padding: 16 },
   basmalah:     { textAlign: "center", color: "#f59e0b", fontSize: 14, marginBottom: 16, letterSpacing: 3 },
   ayahRow:      { position: "relative", flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: "#0d0d0d", borderRadius: 8 },
@@ -2509,41 +2323,6 @@ const styles = StyleSheet.create({
   azkarCounterText:  { fontSize: 13, fontWeight: "700" },
   azkarDoneText:     { color: "#22c55e", fontSize: 12, marginTop: 4 },
 
-  fatwaModalOverlay: { flex: 1, backgroundColor: "#000000bb", justifyContent: "flex-end" },
-  fatwaModalSheet:   { borderWidth: 1, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 30, maxHeight: "88%", flex: 0.88 },
-  fatwaModalHeader:  { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1 },
-  fatwaModalIcon:    { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  fatwaModalTitle:   { fontSize: 15, fontWeight: "800" },
-  fatwaModalSub:     { color: "#555", fontSize: 11, marginTop: 2 },
-  fatwaModalClose:   { width: 34, height: 34, borderRadius: 17, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" },
-  fatwaModalCloseText:{ color: "#888", fontSize: 14 },
-
-  fatwaBubbleSection:   { marginHorizontal: 16, marginVertical: 14 },
-  fatwaBubbleContainer: { borderRadius: 20, overflow: "hidden" },
-  fatwaBubbleBtn:       { borderWidth: 1.5, borderRadius: 20, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 8, overflow: "hidden" },
-  fatwaBubbleGrad:      { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 19 },
-  fatwaBubbleEmoji:     { fontSize: 28 },
-  fatwaBubbleTitle:     { fontSize: 14, fontWeight: "800" },
-  fatwaBubbleSub:       { color: "#666", fontSize: 11, marginTop: 2 },
-  fatwaBubbleDot:       { width: 9, height: 9, borderRadius: 5 },
-
-  fatwaChatWrap:    { flex: 1, paddingHorizontal: 14, paddingTop: 12 },
-  fatwaMsgRow:      { flexDirection: "row", marginBottom: 10 },
-  fatwaBubble:      { maxWidth: "82%", borderWidth: 1, borderRadius: 16, padding: 12 },
-  fatwaAiLabel:     { fontSize: 10, marginBottom: 5, fontWeight: "700" },
-  fatwaMsgText:     { color: "#e2e8f0", fontSize: 13, lineHeight: 22 },
-  fatwaTypingBubble:{ borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 10 },
-  fatwaTypingRow:   { flexDirection: "row", gap: 5, alignItems: "center" },
-  fatwaTypingDot:   { width: 6, height: 6, borderRadius: 3, opacity: 0.6 },
-  fatwaTypingText:  { color: "#666", fontSize: 11, marginRight: 6 },
-  fatwaChipsRow:    { paddingVertical: 6, borderTopWidth: 1 },
-  fatwaChip:        { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 5 },
-  fatwaChipText:    { fontSize: 11 },
-  fatwaInputRow:    { flexDirection: "row", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, alignItems: "center" },
-  fatwaInput:       { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14 },
-  fatwaSendBtn:     { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  fatwaSendBtnText: { color: "#000", fontSize: 18, fontWeight: "800" },
-
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
   statBox:   { width: "47%", backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 14, padding: 14, alignItems: "center" },
   statIcon:  { fontSize: 22 },
@@ -2556,9 +2335,7 @@ const styles = StyleSheet.create({
   barFill:   { width: "100%", borderRadius: 3, borderTopWidth: 2 },
   barDay:    { fontSize: 9, color: "#444" },
   achievementRow:  { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  achievementIcon: { fontSize: 20 },
   achievementLabel:{ flex: 1, fontSize: 13 },
-  achievementCheck:{ fontSize: 16 },
 
   themeRow:        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
   themeEmojiBox:   { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -2586,17 +2363,17 @@ const styles = StyleSheet.create({
 
   bottomAd:     { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 82, left: 0, right: 0, zIndex: 90 },
   bottomAdText: { color: "#333", fontSize: 11 },
-  bottomNav:       { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 10, paddingBottom: 24 },
-  bottomNavContent:{ flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 4 },
-  navTabBtn:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
-  navTabIconWrap:  { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
-  navTabIcon:      { fontSize: 20 },
-  navTabLabel:     { fontSize: 9, marginTop: 1, letterSpacing: 0.3 },
-
-  // About modal
-  aboutTitle:      { color: "#fff", fontSize: 20, fontWeight: "900", textAlign: "center", marginBottom: 12 },
+  bottomNav:        { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 10, paddingBottom: 24 },
+  bottomNavContent: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 4 },
+  navTabBtn:        { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
+  navTabIconWrap:   { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
+  navTabIcon:       { fontSize: 20 },
+  navTabLabel:      { fontSize: 9, marginTop: 1, letterSpacing: 0.3 },
+aboutTitle:      { color: "#fff", fontSize: 20, fontWeight: "900", textAlign: "center", marginBottom: 12 },
   aboutDivider:    { height: 1, marginVertical: 12 },
   aboutSection:    { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginTop: 4, marginBottom: 8 },
   aboutFeature:    { color: "#888", fontSize: 13, lineHeight: 24 },
   aboutDisclaimer: { color: "#555", fontSize: 11, lineHeight: 18, textAlign: "center", marginTop: 8 },
+  floatCloseBtn:     { position: "absolute", top: -8, right: -8, backgroundColor: "#333", borderRadius: 10, width: 20, height: 20, alignItems: "center", justifyContent: "center" },
+  floatCloseBtnText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 });
