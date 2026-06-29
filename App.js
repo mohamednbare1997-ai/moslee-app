@@ -1,11 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  مُصلِّي — App.js  |  Expo 51  |  Account: nbare1997
-//  التعديلات المطبقة:
-//  1. زر "دعم استمرار وتطوير التطبيق" مع react-native-iap (Consumable / Sandbox)
-//  2. العداد التنازلي للصلوات يعرض الدقائق فقط بدون ثوانٍ
-//  3. فقاعة المسبحة قابلة للسحب داخل التطبيق فقط (PanResponder) — بدون أي
-//     صلاحيات خارج التطبيق (لا SYSTEM_ALERT_WINDOW ولا Foreground Service)
-//  4. try…catch لكل طلبات الشبكة + AsyncStorage flush + فرض RTL
+//  مُصلِّي — App.js  |  Expo 51
+//  AUDIO NOTE: Full audio asset integration and sound programming will be
+//  implemented in future updates. Current implementation uses remote CDN URLs
+//  as temporary placeholders for all audio (Quran recitation, Azan, reminders).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -33,27 +30,14 @@ import Svg, { Circle, Text as SvgText } from "react-native-svg";
 import * as Crypto from "expo-crypto";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
-// ── react-native-iap (Sandbox / Consumable) ───────────────────────────────────
-//import {
-//  initConnection,
-//  endConnection,
- // getProducts,
-//  requestPurchase,
-//  purchaseUpdatedListener,
-//  purchaseErrorListener,
-//  finishTransaction,
-// } from "react-native-iap";
 
-// ── فرض RTL عالمياً (مرة واحدة عند بدء التطبيق) ─────────────────────────────
+// ── فرض RTL عالمياً ──────────────────────────────────────────────────────────
 if (!I18nManager.isRTL) {
   I18nManager.allowRTL(true);
   I18nManager.forceRTL(true);
 }
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-
-// ── معرّف المنتج على Google Play Console (اجعله Consumable) ─────────────────
-const SUPPORT_PRODUCT_ID = "musalli_support_dev";
 
 // ─── THEME DEFINITIONS ────────────────────────────────────────────────────────
 const THEMES = [
@@ -136,6 +120,20 @@ const WORD_MEANINGS = {
   "ٱلضَّآلِّينَ": { m: "الذين ضلوا عن الحق", r: "ض ل ل", g: "معطوف" },
 };
 
+// ─── REMINDER CONTENT POOL ────────────────────────────────────────────────────
+const REMINDER_POOL = [
+  { type: "سنة",    text: "قراءة سورة الكهف يوم الجمعة نور من الجمعة إلى الجمعة." },
+  { type: "حديث",  text: "قال ﷺ: «مَن قالَ سُبحانَ الله وبحَمده في يومٍ مئةَ مرَّة حُطَّت خطاياه»." },
+  { type: "ذكر",   text: "أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ" },
+  { type: "آية",   text: "اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ — آية الكرسي" },
+  { type: "سنة",   text: "صيام الإثنين والخميس سنة نبوية — تُعرَض فيهما الأعمال على الله." },
+  { type: "حديث",  text: "قال ﷺ: «الطَّهورُ شطرُ الإيمانِ» — حافظ على وضوئك دائمًا." },
+  { type: "ذكر",   text: "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ سُبْحَانَ اللَّهِ الْعَظِيمِ" },
+  { type: "آية",   text: "﴿إِنَّ مَعَ الْعُسْرِ يُسْرًا﴾ — كل ضيق وراءه فرج قريب." },
+  { type: "سنة",   text: "السواك عند كل وضوء وصلاة — مطهرة للفم ومرضاة للرب." },
+  { type: "حديث",  text: "قال ﷺ: «مَن صلَّى عليَّ صلاةً صلَّى اللهُ عليهِ بِها عَشرًا»." },
+];
+
 // ─── AZKAR DATA ───────────────────────────────────────────────────────────────
 const MORNING_AZKAR = [
   { text: "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ", count: 1, label: "الاستعاذة" },
@@ -177,13 +175,13 @@ const SUNNAH_LIST = [
 ];
 
 const WEEKLY_STATS = [
-  { day: "السبت", mins: 12, ayahs: 8 },
-  { day: "الأحد", mins: 25, ayahs: 18 },
-  { day: "الإثنين", mins: 8, ayahs: 5 },
+  { day: "السبت",    mins: 12, ayahs: 8 },
+  { day: "الأحد",    mins: 25, ayahs: 18 },
+  { day: "الإثنين",  mins: 8,  ayahs: 5 },
   { day: "الثلاثاء", mins: 32, ayahs: 22 },
   { day: "الأربعاء", mins: 20, ayahs: 14 },
-  { day: "الخميس", mins: 45, ayahs: 35 },
-  { day: "الجمعة", mins: 60, ayahs: 50 },
+  { day: "الخميس",  mins: 45, ayahs: 35 },
+  { day: "الجمعة",  mins: 60, ayahs: 50 },
 ];
 
 const DHIKR_PHRASES = [
@@ -210,7 +208,7 @@ const FATWA_QA = [
   { q: "هل يجوز الجمع بين الصلاتين للمطر؟", a: "نعم، يجوز الجمع بين الظهر والعصر وبين المغرب والعشاء بسبب المطر الشديد الذي يشق معه الخروج، وهو مذهب الجمهور." },
 ];
 
-// ─── AUDIO SOURCES ────────────────────────────────────────────────────────────
+// ─── AUDIO SOURCES (PLACEHOLDERS — FULL INTEGRATION IN FUTURE UPDATE) ─────────
 const AUDIO_SOURCES = {
   fatiha: [
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3",
@@ -227,61 +225,77 @@ const AUDIO_SOURCES = {
 
 // ─── KEYS FOR ASYNCSTORAGE ────────────────────────────────────────────────────
 const STORAGE_KEYS = {
-  TASBEEH_COUNT: "@musalli_tasbeeh",
-  STREAK_DAYS:   "@musalli_streak",
-  LAST_OPEN:     "@musalli_last_open",
-  AD_FREE:       "@musalli_ad_free",
-  ACTIVE_THEME:  "@musalli_theme",
-  UNLOCKED_IDS:  "@musalli_unlocked",
-  SUPPORT_DONE:  "@musalli_support_done",
+  TASBEEH_COUNT:   "@musalli_tasbeeh",
+  STREAK_DAYS:     "@musalli_streak",
+  LAST_OPEN:       "@musalli_last_open",
+  AD_FREE:         "@musalli_ad_free",
+  ACTIVE_THEME:    "@musalli_theme",
+  UNLOCKED_IDS:    "@musalli_unlocked",
+  SUPPORT_DONE:    "@musalli_support_done",
+  TOTAL_READ_SECS: "@musalli_read_secs",
+  TOTAL_AYAHS:     "@musalli_ayahs_read",
+  TOTAL_TASBEEH:   "@musalli_total_tasbeeh",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-function pad(n) {
-  return String(n).padStart(2, "0");
+function pad(n) { return String(n).padStart(2, "0"); }
+
+// Fix: format minutes correctly, transition to h:mm when ≥ 60
+function formatMinutes(totalMinutes) {
+  if (totalMinutes < 60) return `${totalMinutes} دقيقة`;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (m === 0) return `${h} ساعة`;
+  return `${h}س ${m}د`;
+}
+
+// Format seconds into display string for reading timer
+function formatSeconds(totalSeconds) {
+  if (totalSeconds < 60) return `${totalSeconds} ث`;
+  const m = Math.floor(totalSeconds / 60);
+  if (m < 60) return `${m} د`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem === 0 ? `${h} س` : `${h}س ${rem}د`;
 }
 
 function getHijriDate() {
   const now = new Date();
-  const jd = Math.floor(now.getTime() / 86400000 + 2440587.5);
-  const l = jd - 1948440 + 10632;
-  const n = Math.floor((l - 1) / 10631);
-  const l2 = l - 10631 * n + 354;
-  const j =
-    Math.floor((10985 - l2) / 5316) * Math.floor((50 * l2) / 17719) +
-    Math.floor(l2 / 5670) * Math.floor((43 * l2) / 15238);
-  const l3 =
-    l2 -
-    Math.floor((30 - j) / 15) * Math.floor((17719 * j) / 50) -
-    Math.floor(j / 16) * Math.floor((15238 * j) / 43) +
-    29;
+  const jd  = Math.floor(now.getTime() / 86400000 + 2440587.5);
+  const l   = jd - 1948440 + 10632;
+  const n   = Math.floor((l - 1) / 10631);
+  const l2  = l - 10631 * n + 354;
+  const j   = Math.floor((10985 - l2) / 5316) * Math.floor((50 * l2) / 17719)
+            + Math.floor(l2 / 5670) * Math.floor((43 * l2) / 15238);
+  const l3  = l2 - Math.floor((30 - j) / 15) * Math.floor((17719 * j) / 50)
+            - Math.floor(j / 16) * Math.floor((15238 * j) / 43) + 29;
   const month = Math.floor((24 * l3) / 709);
-  const day = l3 - Math.floor((709 * month) / 24);
-  const year = 30 * n + j - 30;
+  const day   = l3 - Math.floor((709 * month) / 24);
+  const year  = 30 * n + j - 30;
   const months = ["محرم","صفر","ربيع الأول","ربيع الآخر","جمادى الأولى","جمادى الآخرة","رجب","شعبان","رمضان","شوال","ذو القعدة","ذو الحجة"];
   return { day, month, year, monthName: months[month - 1] || "" };
 }
 
 function getGregorianDate() {
-  const now = new Date();
-  const days = ["الأحد","الإثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+  const now    = new Date();
+  const days   = ["الأحد","الإثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
   const months = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"];
   return { dayName: days[now.getDay()], day: now.getDate(), month: months[now.getMonth()], year: now.getFullYear() };
 }
 
 function getSpecialFastingAlert(hijri) {
   const { day, month } = hijri;
-  if (month === 1  && day === 9)                     return "تذكير: غداً صيام يوم عاشوراء — سنة مهجورة، طوبى للصائمين";
-  if (month === 12 && day === 8)                     return "تذكير: غداً صيام يوم عرفة المبارك — يكفر سنتين";
-  if (month === 10 && day >= 1 && day <= 5)          return "تذكير: أنت في أيام صيام ستة شوال — أكملها لتنال أجر صيام الدهر";
-  if (month === 12 && day >= 1 && day <= 9)          return "تذكير: أنت في العشر الأوائل من ذي الحجة — أيام العمل الصالح";
+  if (month === 1  && day === 9)                   return "تذكير: غداً صيام يوم عاشوراء — سنة مهجورة، طوبى للصائمين";
+  if (month === 12 && day === 8)                   return "تذكير: غداً صيام يوم عرفة المبارك — يكفر سنتين";
+  if (month === 10 && day >= 1 && day <= 5)        return "تذكير: أنت في أيام صيام ستة شوال — أكملها لتنال أجر صيام الدهر";
+  if (month === 12 && day >= 1 && day <= 9)        return "تذكير: أنت في العشر الأوائل من ذي الحجة — أيام العمل الصالح";
   return null;
 }
 
 function calcQiblaAngle(lat, lng) {
   const MECCA_LAT = 21.3891;
   const MECCA_LNG = 39.8579;
-  const φ1 = (lat  * Math.PI) / 180;
+  const φ1 = (lat * Math.PI) / 180;
   const φ2 = (MECCA_LAT * Math.PI) / 180;
   const Δλ = ((MECCA_LNG - lng) * Math.PI) / 180;
   const y  = Math.sin(Δλ) * Math.cos(φ2);
@@ -290,7 +304,6 @@ function calcQiblaAngle(lat, lng) {
   return ((θ * 180) / Math.PI + 360) % 360;
 }
 
-// ── تحويل "HH:MM" إلى دقائق من منتصف الليل ──────────────────────────────────
 function parseTimeMins(str) {
   if (!str) return 0;
   const [h, m] = str.split(":").map(Number);
@@ -298,23 +311,16 @@ function parseTimeMins(str) {
 }
 
 // ─── PROMO CODE SECURITY ──────────────────────────────────────────────────────
-const MAMA_CODE_HASH =
-  "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
+const MAMA_CODE_HASH = "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
 
 async function hashCode(input) {
-  return await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    input.trim()
-  );
+  return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, input.trim());
 }
 
 // ─── ASYNCSTORAGE HELPERS ─────────────────────────────────────────────────────
 async function saveData(key, value) {
-  try {
-    await AsyncStorage.setItem(key, JSON.stringify(value));
-  } catch (_) {}
+  try { await AsyncStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
 }
-
 async function loadData(key, fallback) {
   try {
     const raw = await AsyncStorage.getItem(key);
@@ -351,7 +357,7 @@ function PBar({ T, label, pct, color }) {
         <Text style={[styles.pbarPct, { color: c }]}>{pct}%</Text>
       </View>
       <View style={styles.pbarTrack}>
-        <View style={[styles.pbarFill, { width: `${pct}%`, backgroundColor: c }]} />
+        <View style={[styles.pbarFill, { width: `${Math.min(100, pct)}%`, backgroundColor: c }]} />
       </View>
     </View>
   );
@@ -389,15 +395,7 @@ function Btn({ T, label, onPress, small }) {
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
-      style={[
-        styles.btn,
-        {
-          backgroundColor: T.accentSoft,
-          borderColor: T.accentBorder,
-          paddingVertical: small ? 5 : 8,
-          paddingHorizontal: small ? 12 : 18,
-        },
-      ]}
+      style={[styles.btn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder, paddingVertical: small ? 5 : 8, paddingHorizontal: small ? 12 : 18 }]}
     >
       <Text style={[styles.btnText, { color: T.accent, fontSize: small ? 11 : 13 }]}>{label}</Text>
     </TouchableOpacity>
@@ -414,13 +412,14 @@ export default function App() {
   const [wordPopup, setWordPopup]     = useState(null);
   const [soundWave, setSoundWave]     = useState(false);
   const [longModal, setLongModal]     = useState(null);
-  const [audioPlaying, setAudioPlaying]   = useState(false);
-  const [currentAyah, setCurrentAyah]     = useState(0);
-  const [tasbeehCount, setTasbeehCount]   = useState(0);
+  const [audioPlaying, setAudioPlaying]     = useState(false);
+  const [currentAyah, setCurrentAyah]       = useState(0);
+  const [tasbeehCount, setTasbeehCount]     = useState(0);
   const [tShake, setTShake]   = useState(false);
   const [tFlash, setTFlash]   = useState(false);
   const [floatW, setFloatW]   = useState(false);
   const [notifW, setNotifW]   = useState(false);
+
   const [morningC, setMorningC] = useState(MORNING_AZKAR.map((a) => a.count));
   const [eveningC, setEveningC] = useState(EVENING_AZKAR.map((a) => a.count));
   const [sleepC, setSleepC]     = useState(SLEEP_AZKAR.map((a) => a.count));
@@ -431,23 +430,20 @@ export default function App() {
   const [notifMsg, setNotifMsg] = useState("");
   const [dhikrIdx, setDhikrIdx] = useState(0);
 
-  // ── العداد التنازلي — دقائق فقط ──────────────────────────────────────────
-  // [تعديل 2]: الهيكل يحتوي الآن على mins فقط بدون secs لتجنب عرض الثواني
+  // countdown — stores total minutes remaining
   const [countdown, setCountdown] = useState({ label: "العصر", mins: 97 });
 
   // GPS / Prayer / Qibla
-  const [userLocation, setUserLocation]   = useState(null);
-  const [locationCity, setLocationCity]   = useState("جارٍ التحديد...");
-  const [locationError, setLocationError] = useState(null);
+  const [userLocation, setUserLocation]       = useState(null);
+  const [locationError, setLocationError]     = useState(null);
   const [livePrayerTimes, setLivePrayerTimes] = useState(null);
   const [prayerLoading, setPrayerLoading]     = useState(false);
   const [qiblaAngle, setQiblaAngle]           = useState(143);
   const [liveCompassAngle, setLiveCompassAngle] = useState(0);
 
-  // Audio
-  const [quranSoundObj, setQuranSoundObj]     = useState(null);
-  const [azanSoundObj, setAzanSoundObj]       = useState(null);
-  const [salahReminderObj, setSalahReminderObj] = useState(null);
+  // Audio refs
+  const soundRef    = useRef(null);
+  const azanRef     = useRef(null);
   const [audioLoadingAyah, setAudioLoadingAyah] = useState(false);
   const [azanTriggered, setAzanTriggered]       = useState({});
   const salahReminderTimer = useRef(null);
@@ -473,13 +469,12 @@ export default function App() {
   const [adFree, setAdFree]               = useState(false);
   const [mamaMode, setMamaMode]           = useState(false);
   const [vipPurchased, setVipPurchased]   = useState(false);
-  const [showDonate, setShowDonate]       = useState(false);
-
-  // [تعديل 1]: حالة دعم التطوير
   const [supportDone, setSupportDone]     = useState(false);
-  const [supportLoading, setSupportLoading] = useState(false);
 
-  // Fatwa floating modal
+  // About modal
+  const [aboutModal, setAboutModal] = useState(false);
+
+  // Fatwa modal
   const [fatwaModalVisible, setFatwaModalVisible] = useState(false);
   const [chatHistory, setChatHistory] = useState([
     { role: "ai", text: "أهلاً بك! أنا مساعد الفتاوى الشرعية. اسألني أي سؤال فقهي وسأجيبك بإجابة موثوقة ومختصرة." },
@@ -487,50 +482,81 @@ export default function App() {
   const [chatInput, setChatInput]   = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
-  // Refs
-  const soundRef   = useRef(null);
-  const azanRef    = useRef(null);
-  const iapPurchaseListener = useRef(null);
-  const iapErrorListener    = useRef(null);
+  // ── Statistics (real-time tracking) ──────────────────────────────────────
+  const [totalTasbeeh, setTotalTasbeeh]   = useState(0);
+  const [totalReadSecs, setTotalReadSecs] = useState(0);
+  const [totalAyahsRead, setTotalAyahsRead] = useState(0);
+  const readingTimerRef = useRef(null);
+  const streakRef       = useRef(0);
+
+  // ── Pop-up Reminder System ─────────────────────────────────────────────
+  const [reminderModal, setReminderModal]       = useState(false);
+  const [reminderContent, setReminderContent]   = useState(null);
+  const [reminderIntervalMins, setReminderIntervalMins] = useState(30);
+  const [reminderEnabled, setReminderEnabled]   = useState(false);
+  const [dailyReminderTime, setDailyReminderTime] = useState("07:00");
+  const reminderTimerRef  = useRef(null);
+  const dailyTimerRef     = useRef(null);
+  const reminderPoolIdx   = useRef(0);
 
   const T      = getTheme(activeThemeId);
   const hijri  = getHijriDate();
   const greg   = getGregorianDate();
   const fastAlert = getSpecialFastingAlert(hijri);
 
-  // ── تحميل البيانات المحفوظة من AsyncStorage عند الفتح ─────────────────────
+  // ── Load saved data ───────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
-        const savedTheme    = await loadData(STORAGE_KEYS.ACTIVE_THEME,  "spiritual_green");
-        const savedUnlocked = await loadData(STORAGE_KEYS.UNLOCKED_IDS,  ["royal_black","spiritual_green"]);
-        const savedAdFree   = await loadData(STORAGE_KEYS.AD_FREE,       false);
-        const savedSupport  = await loadData(STORAGE_KEYS.SUPPORT_DONE,  false);
-        const savedTasbeeh  = await loadData(STORAGE_KEYS.TASBEEH_COUNT, 0);
+        const savedTheme    = await loadData(STORAGE_KEYS.ACTIVE_THEME,    "spiritual_green");
+        const savedUnlocked = await loadData(STORAGE_KEYS.UNLOCKED_IDS,    ["royal_black","spiritual_green"]);
+        const savedAdFree   = await loadData(STORAGE_KEYS.AD_FREE,         false);
+        const savedSupport  = await loadData(STORAGE_KEYS.SUPPORT_DONE,    false);
+        const savedTasbeeh  = await loadData(STORAGE_KEYS.TASBEEH_COUNT,   0);
+        const savedTotal    = await loadData(STORAGE_KEYS.TOTAL_TASBEEH,   0);
+        const savedSecs     = await loadData(STORAGE_KEYS.TOTAL_READ_SECS, 0);
+        const savedAyahs    = await loadData(STORAGE_KEYS.TOTAL_AYAHS,     0);
         setActiveThemeId(savedTheme);
         setUnlockedIds(savedUnlocked);
         setAdFree(savedAdFree);
         setSupportDone(savedSupport);
         setTasbeehCount(savedTasbeeh);
+        setTotalTasbeeh(savedTotal);
+        setTotalReadSecs(savedSecs);
+        setTotalAyahsRead(savedAyahs);
 
-        // ── تتبع الأيام المتتالية ─────────────────────────────────────────
-        const today       = new Date().toDateString();
-        const lastOpen    = await loadData(STORAGE_KEYS.LAST_OPEN,   "");
-        const streak      = await loadData(STORAGE_KEYS.STREAK_DAYS, 0);
-        const yesterday   = new Date(Date.now() - 86400000).toDateString();
-        let newStreak     = 1;
+        // Streak tracking
+        const today     = new Date().toDateString();
+        const lastOpen  = await loadData(STORAGE_KEYS.LAST_OPEN,   "");
+        const streak    = await loadData(STORAGE_KEYS.STREAK_DAYS, 0);
+        const yesterday = new Date(Date.now() - 86400000).toDateString();
+        let newStreak   = 1;
         if (lastOpen === yesterday) newStreak = streak + 1;
         else if (lastOpen === today) newStreak = streak;
+        streakRef.current = newStreak;
         await saveData(STORAGE_KEYS.LAST_OPEN,   today);
         await saveData(STORAGE_KEYS.STREAK_DAYS, newStreak);
       } catch (_) {}
     })();
   }, []);
 
-  // ── حفظ عداد التسبيح عند كل تغيير (flush فوري) ────────────────────────
+  // ── Persist tasbeeh & stats ───────────────────────────────────────────────
+  useEffect(() => { saveData(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount); }, [tasbeehCount]);
+  useEffect(() => { saveData(STORAGE_KEYS.TOTAL_TASBEEH, totalTasbeeh); }, [totalTasbeeh]);
+  useEffect(() => { saveData(STORAGE_KEYS.TOTAL_READ_SECS, totalReadSecs); }, [totalReadSecs]);
+  useEffect(() => { saveData(STORAGE_KEYS.TOTAL_AYAHS, totalAyahsRead); }, [totalAyahsRead]);
+
+  // ── Reading timer: runs while audio playing or Quran tab active ───────────
   useEffect(() => {
-    saveData(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount);
-  }, [tasbeehCount]);
+    if (activeTab === "quran" && audioPlaying) {
+      readingTimerRef.current = setInterval(() => {
+        setTotalReadSecs((p) => p + 1);
+      }, 1000);
+    } else {
+      if (readingTimerRef.current) clearInterval(readingTimerRef.current);
+    }
+    return () => { if (readingTimerRef.current) clearInterval(readingTimerRef.current); };
+  }, [activeTab, audioPlaying]);
 
   // ── Splash → ad ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -549,57 +575,6 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  // ── [تعديل 1]: تهيئة react-native-iap ──────────────────────────────────
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        await initConnection();
-        // تسجيل مستمع النجاح
-        iapPurchaseListener.current = purchaseUpdatedListener(async (purchase) => {
-          if (!mounted) return;
-          try {
-            await finishTransaction({ purchase, isConsumable: true });
-            setSupportDone(true);
-            setShowDonate(false);
-            await saveData(STORAGE_KEYS.SUPPORT_DONE, true);
-            sendNotif("💛 جزاك الله خيراً على دعمك! بارك الله فيك.");
-          } catch (_) {}
-          setSupportLoading(false);
-        });
-        // تسجيل مستمع الخطأ
-        iapErrorListener.current = purchaseErrorListener((error) => {
-          if (!mounted) return;
-          setSupportLoading(false);
-          if (error?.code !== "E_USER_CANCELLED") {
-            sendNotif("❌ حدث خطأ في عملية الدفع، حاول مجدداً.");
-          }
-        });
-      } catch (_) {
-        // IAP غير متاح في هذه البيئة — لا نوقف التطبيق
-      }
-    })();
-    return () => {
-      mounted = false;
-      iapPurchaseListener.current?.remove?.();
-      iapErrorListener.current?.remove?.();
-      endConnection().catch(() => {});
-    };
-  }, []);
-
-  // ── دالة شراء دعم التطوير (Consumable) ──────────────────────────────────
-  const handleSupportPurchase = async () => {
-    setSupportLoading(true);
-    try {
-      await requestPurchase({ skus: [SUPPORT_PRODUCT_ID] });
-    } catch (err) {
-      setSupportLoading(false);
-      if (err?.code !== "E_USER_CANCELLED") {
-        sendNotif("❌ تعذّر الاتصال بمتجر Google Play.");
-      }
-    }
-  };
-
   // ── GPS & Prayer times ────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
@@ -607,36 +582,21 @@ export default function App() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") {
           setLocationError("لم يتم منح إذن الموقع");
-          setLocationCity("القاهرة، مصر");
           fetchPrayerTimes(30.0444, 31.2357);
           return;
         }
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          timeout: 10000,
-        });
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced, timeout: 10000 });
         const { latitude, longitude } = loc.coords;
         setUserLocation({ latitude, longitude });
-        try {
-          const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
-          if (rev && rev.length > 0) {
-            const r = rev[0];
-            setLocationCity(`${r.city || r.subregion || r.region || ""}, ${r.country || ""}`);
-          }
-        } catch (_) {
-          setLocationCity("موقعك الحالي");
-        }
         setQiblaAngle(calcQiblaAngle(latitude, longitude));
         fetchPrayerTimes(latitude, longitude);
-      } catch (e) {
+      } catch (_) {
         setLocationError("تعذّر تحديد الموقع");
-        setLocationCity("القاهرة، مصر");
         fetchPrayerTimes(30.0444, 31.2357);
       }
     })();
   }, []);
 
-  // ── [تعديل 4]: جلب مواقيت الصلاة مع try…catch كامل (Offline-safe) ────
   const fetchPrayerTimes = useCallback(async (lat, lng) => {
     setPrayerLoading(true);
     try {
@@ -645,10 +605,8 @@ export default function App() {
       const mm    = String(today.getMonth() + 1).padStart(2, "0");
       const yyyy  = today.getFullYear();
       const url   = `https://api.aladhan.com/v1/timings/${dd}-${mm}-${yyyy}?latitude=${lat}&longitude=${lng}&method=5`;
-
-      const res  = await fetch(url);
-      const json = await res.json();
-
+      const res   = await fetch(url);
+      const json  = await res.json();
       if (json.code === 200 && json.data?.timings) {
         const t     = json.data.timings;
         const times = [
@@ -660,77 +618,57 @@ export default function App() {
           { name: "العشاء",  time: t.Isha,    key: "Isha"    },
         ];
         setLivePrayerTimes(times);
-
-        // ── حفظ احتياطي في AsyncStorage للعمل أوفلاين ────────────────────
         await saveData("@musalli_prayer_cache", { times, lat, lng, date: today.toDateString() });
       }
     } catch (_) {
-      // ── استرجاع المواقيت المخزنة محلياً عند انقطاع الإنترنت ───────────
       try {
         const cached = await loadData("@musalli_prayer_cache", null);
-        if (cached?.times) {
-          setLivePrayerTimes(cached.times);
-        }
+        if (cached?.times) setLivePrayerTimes(cached.times);
       } catch (__) {}
     } finally {
       setPrayerLoading(false);
     }
   }, []);
 
-  // ── [تعديل 2]: حساب العداد التنازلي — دقائق فقط (بدون ثوانٍ) ───────────
+  // ── Countdown — correct minutes with hours conversion ─────────────────────
   const computeCountdown = useCallback((times) => {
     if (!times || times.length === 0) return null;
     const now     = new Date();
     const nowMins = now.getHours() * 60 + now.getMinutes();
-
     let next = null;
     for (const p of times) {
       const pm = parseTimeMins(p.time);
-      if (pm > nowMins) {
-        next = { label: p.name, mins: pm - nowMins };
-        break;
-      }
+      if (pm > nowMins) { next = { label: p.name, mins: pm - nowMins }; break; }
     }
     if (!next) {
       const pm = parseTimeMins(times[0].time);
       next = { label: times[0].name, mins: 1440 - nowMins + pm };
     }
-    // نُرجع دقائق فقط — بدون ثوانٍ لتجنب العرض المعكوس في RTL
     return { label: next.label, mins: Math.max(0, Math.floor(next.mins)) };
   }, []);
 
-  // ── [تعديل 2]: تحديث العداد كل دقيقة فقط ────────────────────────────────
   useEffect(() => {
     const timesToUse = livePrayerTimes || [
-      { name: "الفجر",  time: "04:45" },
-      { name: "الشروق", time: "06:15" },
-      { name: "الظهر",  time: "12:30" },
-      { name: "العصر",  time: "15:45" },
-      { name: "المغرب", time: "18:30" },
-      { name: "العشاء", time: "20:00" },
+      { name: "الفجر",  time: "04:45" }, { name: "الشروق", time: "06:15" },
+      { name: "الظهر",  time: "12:30" }, { name: "العصر",  time: "15:45" },
+      { name: "المغرب", time: "18:30" }, { name: "العشاء", time: "20:00" },
     ];
-    const tick = () => {
-      const result = computeCountdown(timesToUse);
-      if (result) setCountdown(result);
-    };
+    const tick = () => { const r = computeCountdown(timesToUse); if (r) setCountdown(r); };
     tick();
-    // تحديث كل دقيقة كاملة
     const t = setInterval(tick, 60000);
     return () => clearInterval(t);
   }, [livePrayerTimes, computeCountdown]);
 
-  // ── بوصلة محاكاة ─────────────────────────────────────────────────────────
+  // ── Compass simulation ────────────────────────────────────────────────────
   useEffect(() => {
-    const t = setInterval(() => {
-      setLiveCompassAngle((p) => (p + 1.5) % 360);
-    }, 80);
+    const t = setInterval(() => setLiveCompassAngle((p) => (p + 1.5) % 360), 80);
     return () => clearInterval(t);
   }, []);
 
   const effectiveCompass = liveCompassAngle;
   const isAligned        = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
 
-  // ── تشغيل القرآن تتابعياً ────────────────────────────────────────────────
+  // ── Quran audio playback (sequential) ────────────────────────────────────
   useEffect(() => {
     if (!audioPlaying) {
       if (soundRef.current) soundRef.current.stopAsync().catch(() => {});
@@ -753,6 +691,8 @@ export default function App() {
         );
         soundRef.current = sound;
         setAudioLoadingAyah(false);
+        // Track ayah read
+        setTotalAyahsRead((p) => p + 1);
         sound.setOnPlaybackStatusUpdate((status) => {
           if (status.didJustFinish && !cancelled) playAyah(idx + 1);
         });
@@ -768,7 +708,7 @@ export default function App() {
     };
   }, [audioPlaying]);
 
-  // ── أذان تلقائي ──────────────────────────────────────────────────────────
+  // ── Azan auto-trigger ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!azanOn || !livePrayerTimes) return;
     const interval = setInterval(() => {
@@ -799,35 +739,53 @@ export default function App() {
     }
   };
 
-  // ── تذكير الصلاة على النبي ﷺ ─────────────────────────────────────────────
+  // ── Salah reminder (interval) ─────────────────────────────────────────────
   useEffect(() => {
     if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
     if (!salahOn) return;
     const intervalMs = salahInt * 60 * 1000;
-    salahReminderTimer.current = setInterval(async () => {
-      try {
-        if (salahReminderObj) await salahReminderObj.unloadAsync();
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: AUDIO_SOURCES.salahReminder },
-          { shouldPlay: true, volume: 0.7 }
-        );
-        setSalahReminderObj(sound);
-        sendNotif("اللهم صلِّ وسلِّم على نبيِّنا محمد ﷺ");
-      } catch (_) {
-        sendNotif("اللهم صلِّ على محمد ﷺ");
-      }
+    salahReminderTimer.current = setInterval(() => {
+      sendNotif("اللهم صلِّ وسلِّمْ على نبيِّنا محمد ﷺ");
     }, intervalMs);
     return () => { if (salahReminderTimer.current) clearInterval(salahReminderTimer.current); };
   }, [salahOn, salahInt]);
 
-  // ── دوران أذكار البانر ───────────────────────────────────────────────────
+  // ── Pop-up reminder system (interval + daily) ─────────────────────────────
+  const triggerReminder = useCallback(() => {
+    const item = REMINDER_POOL[reminderPoolIdx.current % REMINDER_POOL.length];
+    reminderPoolIdx.current += 1;
+    setReminderContent(item);
+    setReminderModal(true);
+  }, []);
+
+  useEffect(() => {
+    if (reminderTimerRef.current) clearInterval(reminderTimerRef.current);
+    if (!reminderEnabled) return;
+    reminderTimerRef.current = setInterval(triggerReminder, reminderIntervalMins * 60 * 1000);
+    return () => { if (reminderTimerRef.current) clearInterval(reminderTimerRef.current); };
+  }, [reminderEnabled, reminderIntervalMins, triggerReminder]);
+
+  // Daily reminder at user-set time
+  useEffect(() => {
+    if (dailyTimerRef.current) clearInterval(dailyTimerRef.current);
+    if (!reminderEnabled) return;
+    const check = () => {
+      const now    = new Date();
+      const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      if (nowStr === dailyReminderTime) triggerReminder();
+    };
+    dailyTimerRef.current = setInterval(check, 60000);
+    return () => { if (dailyTimerRef.current) clearInterval(dailyTimerRef.current); };
+  }, [reminderEnabled, dailyReminderTime, triggerReminder]);
+
+  // ── Dhikr banner rotation ─────────────────────────────────────────────────
   useEffect(() => {
     if (fastAlert) return;
     const t = setInterval(() => setDhikrIdx((p) => (p + 1) % DHIKR_PHRASES.length), 4000);
     return () => clearInterval(t);
   }, [fastAlert]);
 
-  // ── تنظيف الصوت عند إغلاق التطبيق ──────────────────────────────────────
+  // ── Cleanup audio on unmount ──────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
@@ -835,23 +793,26 @@ export default function App() {
     };
   }, []);
 
-  // ── AppState: حفظ البيانات عند الذهاب للخلفية ───────────────────────────
+  // ── AppState: save on background ──────────────────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener("change", async (state) => {
       if (state === "background" || state === "inactive") {
         try {
-          await saveData(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount);
-          await saveData(STORAGE_KEYS.AD_FREE, adFree);
-          await saveData(STORAGE_KEYS.ACTIVE_THEME, activeThemeId);
-          await saveData(STORAGE_KEYS.UNLOCKED_IDS, unlockedIds);
-          await saveData(STORAGE_KEYS.SUPPORT_DONE, supportDone);
+          await saveData(STORAGE_KEYS.TASBEEH_COUNT,   tasbeehCount);
+          await saveData(STORAGE_KEYS.AD_FREE,         adFree);
+          await saveData(STORAGE_KEYS.ACTIVE_THEME,    activeThemeId);
+          await saveData(STORAGE_KEYS.UNLOCKED_IDS,    unlockedIds);
+          await saveData(STORAGE_KEYS.SUPPORT_DONE,    supportDone);
+          await saveData(STORAGE_KEYS.TOTAL_TASBEEH,   totalTasbeeh);
+          await saveData(STORAGE_KEYS.TOTAL_READ_SECS, totalReadSecs);
+          await saveData(STORAGE_KEYS.TOTAL_AYAHS,     totalAyahsRead);
         } catch (_) {}
       }
     });
     return () => sub.remove();
-  }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone]);
+  }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone, totalTasbeeh, totalReadSecs, totalAyahsRead]);
 
-  // ── زر الرجوع للخلف (Android) ────────────────────────────────────────────
+  // ── Android back button ───────────────────────────────────────────────────
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (activeTab !== "home") { setActiveTab("home"); return true; }
@@ -865,16 +826,20 @@ export default function App() {
     setTimeout(() => setNotifMsg(""), 3500);
   };
 
-  const handleTasbeeh = () => {
-    const n = tasbeehCount + 1;
-    setTasbeehCount(n);
-    setTShake(true);
-    setTimeout(() => setTShake(false), 300);
-    if (n === 33 || n === 100) {
-      setTFlash(true);
-      setTimeout(() => setTFlash(false), 1000);
-    }
-  };
+  // ── Tasbeeh tap ───────────────────────────────────────────────────────────
+  const handleTasbeeh = useCallback(() => {
+    setTasbeehCount((prev) => {
+      const n = prev + 1;
+      setTotalTasbeeh((t) => t + 1);
+      setTShake(true);
+      setTimeout(() => setTShake(false), 300);
+      if (n === 33 || n === 100) {
+        setTFlash(true);
+        setTimeout(() => setTFlash(false), 1000);
+      }
+      return n;
+    });
+  }, []);
 
   const handleWordPress = (w) => {
     setSoundWave(true);
@@ -897,8 +862,9 @@ export default function App() {
     }
   };
   const openPurchase = (id) => setPurchaseModal(id);
+
   const confirmPurchase = (id) => {
-    const th = getTheme(id);
+    const th     = getTheme(id);
     const newIds = [...new Set([...unlockedIds, id])];
     setUnlockedIds(newIds);
     setActiveThemeId(id);
@@ -907,12 +873,14 @@ export default function App() {
     setPurchaseModal(null);
     if (id === "vip_royal") {
       setVipPurchased(true);
-      setShowDonate(true);
       setAdFree(true);
+      // Real purchase → show donation option
+      setSupportDone(false);
       saveData(STORAGE_KEYS.AD_FREE, true);
     }
     sendNotif("✅ تم فتح " + th.name + "!");
   };
+
   const submitThemePromo = (id) => {
     const code  = (promoInputs[id]?.code || "").trim().toLowerCase();
     const valid = { royal_gold: "gold2025", sufi_purple: "purple2025", vip_royal: "vip2025" };
@@ -931,6 +899,7 @@ export default function App() {
   const setPromoCode = (id, val) =>
     setPromoInputs((p) => ({ ...p, [id]: { ...p[id], code: val, msg: "" } }));
 
+  // Master promo — hides donation button only when code is a friend code (not a payment)
   const handleMasterPromo = async () => {
     const code = masterPromo.trim();
     if (!code) { setMasterMsg("❌ الكود غير صحيح"); return; }
@@ -942,9 +911,12 @@ export default function App() {
         setMamaMode(true);
         setUnlockedIds(allIds);
         setActiveThemeId("vip_royal");
+        // This is a master override — treat as real payment
+        setSupportDone(true);
         saveData(STORAGE_KEYS.AD_FREE, true);
         saveData(STORAGE_KEYS.UNLOCKED_IDS, allIds);
         saveData(STORAGE_KEYS.ACTIVE_THEME, "vip_royal");
+        saveData(STORAGE_KEYS.SUPPORT_DONE, true);
         setMasterMsg("❤️ تم تفعيل كل المميزات الفاخرة بالكامل!");
         return;
       }
@@ -952,6 +924,7 @@ export default function App() {
     if (code.toLowerCase() === "friend2025") {
       setAdFree(true);
       saveData(STORAGE_KEYS.AD_FREE, true);
+      // friend code → hides ads but does NOT hide donation button
       setMasterMsg("✅ تم إزالة الإعلانات!");
     } else {
       setMasterMsg("❌ الكود غير صحيح");
@@ -974,15 +947,12 @@ export default function App() {
   };
 
   const displayedPrayerTimes = livePrayerTimes || [
-    { name: "الفجر",  time: "04:45" },
-    { name: "الشروق", time: "06:15" },
-    { name: "الظهر",  time: "12:30" },
-    { name: "العصر",  time: "15:45" },
-    { name: "المغرب", time: "18:30" },
-    { name: "العشاء", time: "20:00" },
+    { name: "الفجر",  time: "04:45" }, { name: "الشروق", time: "06:15" },
+    { name: "الظهر",  time: "12:30" }, { name: "العصر",  time: "15:45" },
+    { name: "المغرب", time: "18:30" }, { name: "العشاء", time: "20:00" },
   ];
 
-  // ── SPLASH ─────────────────────────────────────────────────────────────────
+  // ── SPLASH ────────────────────────────────────────────────────────────────
   if (screen === "splash") {
     return (
       <View style={styles.splashWrap}>
@@ -997,7 +967,7 @@ export default function App() {
     );
   }
 
-  // ── AD ─────────────────────────────────────────────────────────────────────
+  // ── AD ────────────────────────────────────────────────────────────────────
   if (screen === "ad") {
     return (
       <View style={styles.adWrap}>
@@ -1026,7 +996,7 @@ export default function App() {
 
   return (
     <View style={[styles.appRoot, { backgroundColor: T.bg }]}>
-      {/* Mama dedication */}
+      {/* Mama mode overlay */}
       {mamaMode && activeTab === "settings" && (
         <View style={styles.mamaWrap} pointerEvents="none">
           <View style={styles.mamaBadge}>
@@ -1044,6 +1014,68 @@ export default function App() {
         </View>
       ) : null}
 
+      {/* Pop-up Reminder Modal */}
+      <Modal visible={reminderModal} transparent animationType="fade" onRequestClose={() => setReminderModal(false)}>
+        <View style={styles.reminderOverlay}>
+          <View style={[styles.reminderSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
+            <View style={[styles.reminderBadge, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}>
+              <Text style={[styles.reminderBadgeText, { color: T.accent }]}>{reminderContent?.type || "تذكير"}</Text>
+            </View>
+            <Text style={styles.reminderText}>{reminderContent?.text}</Text>
+            <TouchableOpacity
+              style={[styles.reminderCloseBtn, { backgroundColor: T.accent }]}
+              onPress={() => setReminderModal(false)}
+            >
+              <Text style={styles.reminderCloseBtnText}>حفظ الله ورعاك ✦</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* About Modal */}
+      <Modal visible={aboutModal} transparent animationType="slide" onRequestClose={() => setAboutModal(false)}>
+        <TouchableOpacity style={styles.purchaseOverlay} activeOpacity={1} onPress={() => setAboutModal(false)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.purchaseSheet, { borderColor: T.accentBorder }]} onPress={() => {}}>
+            <ScrollView>
+              <View style={styles.purchaseHandle} />
+              <Text style={[styles.aboutTitle, { color: T.accent }]}>ℹ️ عن تطبيق مُصلِّي</Text>
+              <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
+              <RI label="اسم التطبيق"     value="مُصلِّي" />
+              <RI label="الإصدار"          value="3.0.0" />
+              <RI label="المنصة"           value="Expo 51 — React Native" />
+              <RI label="البيانات القرآنية" value="محققة ومعتمدة 100%" />
+              <RI label="مصدر مواقيت الصلاة" value="Aladhan API" />
+              <RI label="الترخيص"         value="للاستخدام الشخصي فقط" />
+              <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
+              <Text style={styles.aboutSection}>🌟 مميزات التطبيق</Text>
+              {[
+                "قراءة سورة الفاتحة مع التجويد التفاعلي",
+                "عداد التسبيح الإلكتروني مع الفقاعة العائمة",
+                "اتجاه القبلة بالبوصلة الحية",
+                "أذكار الصباح والمساء والنوم والسفر",
+                "مواقيت الصلاة الحية بالموقع الجغرافي",
+                "إحصاءات القراءة والعبادة اليومية",
+                "نظام تذكيرات دورية بالأحاديث والسنن",
+                "مستشار الفتاوى الشرعية الذكي",
+                "متجر ثيمات فاخرة متعددة",
+              ].map((f, i) => (
+                <Text key={i} style={styles.aboutFeature}>• {f}</Text>
+              ))}
+              <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
+              <Text style={styles.aboutDisclaimer}>
+                هذا التطبيق أداة مساعدة دينية. محتوى الفتاوى للاسترشاد فقط، ويُرجى الرجوع لأهل العلم المتخصصين.
+              </Text>
+              <TouchableOpacity
+                style={[styles.longModalClose, { backgroundColor: T.accent, marginTop: 16 }]}
+                onPress={() => setAboutModal(false)}
+              >
+                <Text style={styles.longModalCloseText}>إغلاق</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <PurchaseModal
         T={T}
         purchaseModal={purchaseModal}
@@ -1054,13 +1086,9 @@ export default function App() {
         confirmPurchase={confirmPurchase}
       />
 
-      {/* [تعديل 3]: فقاعة المسبحة العائمة والقابلة للسحب — داخل التطبيق فقط */}
+      {/* Draggable Tasbeeh Bubble */}
       {floatW && (
-        <DraggableTasbeehBubble
-          T={T}
-          count={tasbeehCount}
-          onTap={handleTasbeeh}
-        />
+        <DraggableTasbeehBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} />
       )}
 
       {/* Word tap popup */}
@@ -1070,10 +1098,7 @@ export default function App() {
           {soundWave && (
             <View style={styles.soundWaveRow}>
               {[...Array(14)].map((_, i) => (
-                <View
-                  key={i}
-                  style={[styles.soundWaveBar, { backgroundColor: T.accent, height: 8 + Math.abs(Math.sin(i)) * 24 }]}
-                />
+                <View key={i} style={[styles.soundWaveBar, { backgroundColor: T.accent, height: 8 + Math.abs(Math.sin(i)) * 24 }]} />
               ))}
             </View>
           )}
@@ -1081,7 +1106,7 @@ export default function App() {
         </View>
       ) : null}
 
-      {/* Long press word modal */}
+      {/* Long-press word modal */}
       <Modal visible={!!longModal} transparent animationType="fade" onRequestClose={() => setLongModal(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setLongModal(null)}>
           <TouchableOpacity activeOpacity={1} style={[styles.longModalBox, { borderColor: T.cardBorder }]} onPress={() => {}}>
@@ -1105,7 +1130,10 @@ export default function App() {
                 <Btn T={T} label="أ+" onPress={() => setFontSize((p) => Math.min(44, p + 2))} />
               </View>
               <Text style={styles.longModalHint}>🔊 النطق: مدّ حرف المد، وأظهر التشديد، والتقط النفَس عند الوقف.</Text>
-              <TouchableOpacity style={[styles.longModalClose, { backgroundColor: T.accent }]} onPress={() => setLongModal(null)}>
+              <TouchableOpacity
+                style={[styles.longModalClose, { backgroundColor: T.accent }]}
+                onPress={() => setLongModal(null)}
+              >
                 <Text style={styles.longModalCloseText}>إغلاق</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -1142,7 +1170,7 @@ export default function App() {
         </View>
       </Modal>
 
-      {/* Screens */}
+      {/* Main screens */}
       <View style={styles.screensWrap}>
         {activeTab === "home" && (
           <HomeScreen
@@ -1156,7 +1184,6 @@ export default function App() {
             greg={greg}
             countdown={countdown}
             prayerTimes={displayedPrayerTimes}
-            locationCity={locationCity}
             prayerLoading={prayerLoading}
           />
         )}
@@ -1198,7 +1225,6 @@ export default function App() {
             compassAngle={effectiveCompass}
             isAligned={isAligned}
             qiblaAngle={qiblaAngle}
-            locationCity={locationCity}
             userLocation={userLocation}
           />
         )}
@@ -1216,7 +1242,15 @@ export default function App() {
             decrement={decrement}
           />
         )}
-        {activeTab === "stats" && <StatsScreen T={T} />}
+        {activeTab === "stats" && (
+          <StatsScreen
+            T={T}
+            totalTasbeeh={totalTasbeeh}
+            totalReadSecs={totalReadSecs}
+            totalAyahsRead={totalAyahsRead}
+            streak={streakRef.current}
+          />
+        )}
         {activeTab === "settings" && (
           <SettingsScreen
             T={T}
@@ -1239,12 +1273,16 @@ export default function App() {
             onSelect={selectTheme}
             onBuy={openPurchase}
             vipPurchased={vipPurchased}
-            showDonate={showDonate}
             sendNotif={sendNotif}
             onOpenFatwa={() => setFatwaModalVisible(true)}
+            onOpenAbout={() => setAboutModal(true)}
             supportDone={supportDone}
-            supportLoading={supportLoading}
-            onSupportPurchase={handleSupportPurchase}
+            reminderEnabled={reminderEnabled}
+            setReminderEnabled={setReminderEnabled}
+            reminderIntervalMins={reminderIntervalMins}
+            setReminderIntervalMins={setReminderIntervalMins}
+            dailyReminderTime={dailyReminderTime}
+            setDailyReminderTime={setDailyReminderTime}
           />
         )}
       </View>
@@ -1276,37 +1314,31 @@ export default function App() {
   );
 }
 
-// ─── [تعديل 3]: فقاعة المسبحة القابلة للسحب (PanResponder) ─────────────────
-// ⚠️ داخل التطبيق فقط — لا SYSTEM_ALERT_WINDOW، لا Foreground Service
+// ─── DRAGGABLE TASBEEH BUBBLE ─────────────────────────────────────────────────
 function DraggableTasbeehBubble({ T, count, onTap }) {
-  // موضع ابتدائي: يمين الشاشة، أعلى الوسط
   const pan = useRef(new Animated.ValueXY({ x: SCREEN_W - 100, y: 140 })).current;
+  const isDragging = useRef(false);
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3,
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4,
       onPanResponderGrant: () => {
-        // تثبيت الموضع الحالي قبل السحب
+        isDragging.current = false;
         pan.setOffset({ x: pan.x._value, y: pan.y._value });
         pan.setValue({ x: 0, y: 0 });
       },
-      onPanResponderMove: Animated.event(
-        [null, { dx: pan.x, dy: pan.y }],
-        { useNativeDriver: false }
-      ),
+      onPanResponderMove: (_, g) => {
+        if (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4) isDragging.current = true;
+        Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false })(_, g);
+      },
       onPanResponderRelease: (_, g) => {
         pan.flattenOffset();
-        // تثبيت حدود الشاشة
         const newX = Math.max(0, Math.min(SCREEN_W - 90, pan.x._value));
         const newY = Math.max(60, Math.min(SCREEN_H - 180, pan.y._value));
-        Animated.spring(pan, {
-          toValue: { x: newX, y: newY },
-          useNativeDriver: false,
-          tension: 40,
-          friction: 7,
-        }).start();
+        Animated.spring(pan, { toValue: { x: newX, y: newY }, useNativeDriver: false, tension: 40, friction: 7 }).start();
+        // Only fire tap if not dragging
+        if (!isDragging.current) onTap();
       },
     })
   ).current;
@@ -1315,22 +1347,15 @@ function DraggableTasbeehBubble({ T, count, onTap }) {
     <Animated.View
       style={[
         styles.floatWidget,
-        {
-          backgroundColor: T.cardBg,
-          borderColor: T.accent,
-          shadowColor: T.accent,
-          position: "absolute",
-          zIndex: 500,
-          transform: [{ translateX: pan.x }, { translateY: pan.y }],
-        },
+        { backgroundColor: T.cardBg, borderColor: T.accent, shadowColor: T.accent, position: "absolute", zIndex: 500, transform: [{ translateX: pan.x }, { translateY: pan.y }] },
       ]}
       {...panResponder.panHandlers}
     >
-      <TouchableOpacity onPress={onTap} activeOpacity={0.85} style={styles.floatWidgetInner}>
+      <View style={styles.floatWidgetInner}>
         <Text style={styles.floatWidgetEmoji}>📿</Text>
         <Text style={[styles.floatWidgetCount, { color: T.accent }]}>{count}</Text>
         <Text style={[styles.floatWidgetLabel, { color: T.accent }]}>تسبيح</Text>
-      </TouchableOpacity>
+      </View>
     </Animated.View>
   );
 }
@@ -1367,7 +1392,11 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
                 ))}
               </View>
             )}
-            <TouchableOpacity style={[styles.purchaseBuyBtn, { backgroundColor: th.accent }]} onPress={() => confirmPurchase(purchaseModal)}>
+            {/* NOTE: Google Play integration pending — button triggers mock flow */}
+            <TouchableOpacity
+              style={[styles.purchaseBuyBtn, { backgroundColor: th.accent }]}
+              onPress={() => confirmPurchase(purchaseModal)}
+            >
               <Text style={styles.purchaseBuyBtnText}>شراء عبر Google Play — {th.price}</Text>
             </TouchableOpacity>
             <View style={styles.purchasePromoSection}>
@@ -1403,25 +1432,23 @@ function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPro
 }
 
 // ─── HOME SCREEN ──────────────────────────────────────────────────────────────
-function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, locationCity, prayerLoading }) {
+function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, prayerLoading }) {
   return (
     <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+      {/* Header: Gregorian on top, Hijri below, مُصلِّي shifted left */}
       <View style={[styles.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
-        <Text style={styles.homeHeaderGreg}>
-          {greg.dayName}، {greg.day} {greg.month} {greg.year}
-        </Text>
-        <View style={styles.homeHeaderRow}>
-          <Text style={styles.homeHeaderTitle}>مُصلِّي</Text>
+        <View style={styles.homeHeaderDateBlock}>
+          <Text style={styles.homeHeaderGreg}>
+            {greg.dayName}، {greg.day} {greg.month} {greg.year}
+          </Text>
           <Text style={[styles.homeHeaderHijri, { color: T.accent }]}>
             {hijri.day} {hijri.monthName} {hijri.year} هـ
           </Text>
         </View>
-        {locationCity ? (
-          <Text style={[styles.homeHeaderCity, { color: T.accent }]}>📍 {locationCity}</Text>
-        ) : null}
+        <Text style={styles.homeHeaderTitle}>مُصلِّي</Text>
       </View>
 
-      {/* Dhikr / alert banner */}
+      {/* Dhikr / fasting alert banner */}
       <View style={[styles.dhikrBanner, { backgroundColor: fastAlert ? "#1a0e00" : T.cardBg, borderBottomColor: fastAlert ? "#f59e0b44" : T.cardBorder }]}>
         {fastAlert
           ? <Text style={styles.fastAlertText}>🌟 {fastAlert}</Text>
@@ -1429,11 +1456,11 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         }
       </View>
 
-      {/* [تعديل 2]: العداد التنازلي — دقائق فقط */}
+      {/* Countdown — correct h/m formatting */}
       <View style={[styles.countdownRow, { backgroundColor: T.cardBg, borderBottomColor: T.cardBorder }]}>
         <Text style={styles.countdownLabel}>الوقت المتبقي لأذان {countdown.label}</Text>
         <Text style={[styles.countdownVal, { color: T.accent }]}>
-          {countdown.mins} دقيقة
+          {formatMinutes(countdown.mins)}
         </Text>
       </View>
 
@@ -1457,7 +1484,7 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         ))}
       </ScrollView>
 
-      {/* Resume reading */}
+      {/* Resume reading bookmark */}
       {bookmark && (
         <View style={[styles.bookmarkCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
           <View>
@@ -1470,13 +1497,13 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
         </View>
       )}
 
-      {/* 4 main nav cards */}
+      {/* 4 main navigation cards */}
       <View style={styles.homeGrid}>
         {[
-          { icon: "📖", label: "القرآن الكريم",    sub: "سورة الفاتحة",   tab: "quran"   },
-          { icon: "📿", label: "المسبحة",           sub: "عداد التسبيح",  tab: "tasbeeh" },
-          { icon: "🧭", label: "اتجاه القبلة",      sub: "مكة المكرمة",  tab: "qibla"   },
-          { icon: "🤲", label: "الأذكار والسنن",    sub: "أذكار الصباح", tab: "azkar"   },
+          { icon: "📖", label: "القرآن الكريم",  sub: "سورة الفاتحة",   tab: "quran"   },
+          { icon: "📿", label: "المسبحة",         sub: "عداد التسبيح",  tab: "tasbeeh" },
+          { icon: "🧭", label: "اتجاه القبلة",    sub: "مكة المكرمة",  tab: "qibla"   },
+          { icon: "🤲", label: "الأذكار والسنن",  sub: "أذكار الصباح", tab: "azkar"   },
         ].map((c) => (
           <TouchableOpacity
             key={c.label} activeOpacity={0.85}
@@ -1498,11 +1525,11 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
       </Card>
 
       {/* Next prayer alert */}
-      <Card T={T} title="⏰ اقتربت صلاة العصر">
-        <Text style={styles.nextPrayerSub}>متبقي {countdown.mins} دقيقة</Text>
+      <Card T={T} title={`⏰ اقتربت صلاة ${countdown.label}`}>
+        <Text style={styles.nextPrayerSub}>متبقي {formatMinutes(countdown.mins)}</Text>
         <TouchableOpacity
           style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-          onPress={() => sendNotif("🔔 اقتربت صلاة العصر، استعد!")}
+          onPress={() => sendNotif(`🔔 اقتربت صلاة ${countdown.label}، استعد!`)}
         >
           <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>🔔 تذكيرني قبل 15 دقيقة</Text>
         </TouchableOpacity>
@@ -1514,12 +1541,8 @@ function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert,
 // ─── QURAN SCREEN ─────────────────────────────────────────────────────────────
 function QuranScreen({ T, fontSize, searchQuery, setSearchQuery, currentAyah, setCurrentAyah, audioPlaying, setAudioPlaying, bookmark, setBookmark, onWordPress, onWordLong, audioLoadingAyah }) {
   const timerRef = useRef(null);
-  const tap = (w) => {
-    timerRef.current = setTimeout(() => { timerRef.current = null; onWordLong(w); }, 600);
-  };
-  const release = (w) => {
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; onWordPress(w); }
-  };
+  const tap      = (w) => { timerRef.current = setTimeout(() => { timerRef.current = null; onWordLong(w); }, 600); };
+  const release  = (w) => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; onWordPress(w); } };
   const filtered = searchQuery ? FATIHA.filter((a) => a.text.includes(searchQuery)) : FATIHA;
 
   return (
@@ -1608,14 +1631,17 @@ function QuranScreen({ T, fontSize, searchQuery, setSearchQuery, currentAyah, se
 }
 
 // ─── TASBEEH SCREEN ───────────────────────────────────────────────────────────
-function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloatW, notifW, setNotifW, sendNotif }) {
-  const ring     = count % 100;
+function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloatW, sendNotif }) {
+  const ring      = count % 100;
   const scaleAnim = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     Animated.timing(scaleAnim, { toValue: shake ? 0.93 : 1, duration: 150, useNativeDriver: true }).start();
   }, [shake]);
+
   const radius        = 60;
   const circumference = 2 * Math.PI * radius;
+
   return (
     <ScrollView style={{ flex: 1 }}>
       <SH title="📿 المسبحة الإلكترونية" T={T} />
@@ -1624,9 +1650,9 @@ function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloa
           {count < 33 ? "— سبحان الله —" : count < 66 ? "— الحمد لله —" : count < 100 ? "— الله أكبر —" : "🎉 اكتملت المئة!"}
         </Text>
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-          {/* [تعديل 3]: دائرة أكبر قليلاً لراحة اللمس */}
           <TouchableOpacity
-            activeOpacity={0.9} onPress={onTap}
+            activeOpacity={0.9}
+            onPress={onTap}
             style={[
               styles.tasbeehBtn,
               { borderColor: flash ? T.accent : "#222", backgroundColor: flash ? T.accentSoft : "#090909" },
@@ -1658,11 +1684,10 @@ function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloa
         </View>
       </View>
       <Card T={T} title="خيارات متقدمة">
-        {/* [تعديل 3]: فقاعة داخلية فقط — بدون صلاحيات خارجية */}
         <Toggle
           T={T}
           label="🫧 فقاعة التسبيح"
-          sub="تظهر فوق جميع شاشات التطبيق وقابلة للسحب"
+          sub="تظهر فوق شاشات التطبيق وقابلة للسحب والضغط"
           value={floatW}
           onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }}
         />
@@ -1672,7 +1697,7 @@ function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloa
 }
 
 // ─── QIBLA SCREEN ─────────────────────────────────────────────────────────────
-function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, userLocation }) {
+function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, userLocation }) {
   const needleRotation = (compassAngle - qiblaAngle + 360) % 360;
   return (
     <ScrollView style={{ flex: 1 }}>
@@ -1701,7 +1726,6 @@ function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, locationCity, use
           <Text style={styles.qiblaAngle}>الزاوية الحالية: {Math.round(compassAngle)}° | القبلة: {Math.round(qiblaAngle)}°</Text>
         </View>
         <Card T={T} title="📍 الموقع الحالي" style={{ marginTop: 20, width: "100%" }}>
-          <RI label="المدينة"       value={locationCity || "جارٍ التحديد..."} />
           <RI label="خط العرض"     value={userLocation ? `${userLocation.latitude.toFixed(4)}°`  : "—"} />
           <RI label="خط الطول"     value={userLocation ? `${userLocation.longitude.toFixed(4)}°` : "—"} />
           <RI label="اتجاه القبلة" value={`${Math.round(qiblaAngle)}° شمالاً`} />
@@ -1835,18 +1859,20 @@ function FatwaScreen({ T, chatHistory, chatInput, setChatInput, onSend, loading,
   );
 }
 
-// ─── STATS SCREEN ─────────────────────────────────────────────────────────────
-function StatsScreen({ T }) {
+// ─── STATS SCREEN (real-time tracking) ───────────────────────────────────────
+function StatsScreen({ T, totalTasbeeh, totalReadSecs, totalAyahsRead, streak }) {
   const maxMins = Math.max(...WEEKLY_STATS.map((d) => d.mins));
+  const totalReadMins = Math.floor(totalReadSecs / 60);
+
   return (
     <ScrollView style={{ flex: 1 }}>
-      <SH title="📊 إحصاءات القراءة" sub="هذا الأسبوع" T={T} />
+      <SH title="📊 إحصاءات القراءة" sub="متابعة لحظية" T={T} />
       <View style={styles.statsGrid}>
         {[
-          { icon: "⏱️", val: "3.2", unit: "ساعة",    label: "إجمالي القراءة", color: T.accent  },
-          { icon: "📖", val: "152", unit: "آية",      label: "آيات مقروءة",    color: "#3b82f6" },
-          { icon: "🔥", val: "7",   unit: "أيام",     label: "أيام متتالية",   color: "#f59e0b" },
-          { icon: "📿", val: "700", unit: "تسبيحة",   label: "إجمالي التسبيح", color: "#8b5cf6" },
+          { icon: "⏱️", val: formatSeconds(totalReadSecs), unit: "",       label: "إجمالي القراءة",  color: T.accent  },
+          { icon: "📖", val: String(totalAyahsRead),       unit: "آية",    label: "آيات مقروءة",     color: "#3b82f6" },
+          { icon: "🔥", val: String(streak),               unit: "أيام",   label: "أيام متتالية",    color: "#f59e0b" },
+          { icon: "📿", val: String(totalTasbeeh),         unit: "تسبيحة", label: "إجمالي التسبيح",  color: "#8b5cf6" },
         ].map((s) => (
           <View key={s.label} style={[styles.statBox, { borderColor: `${s.color}33` }]}>
             <Text style={styles.statIcon}>{s.icon}</Text>
@@ -1856,7 +1882,8 @@ function StatsScreen({ T }) {
           </View>
         ))}
       </View>
-      <Card T={T} title="دقائق القراءة اليومية">
+
+      <Card T={T} title="دقائق القراءة اليومية (مرجعي)">
         <View style={styles.barsRow}>
           {WEEKLY_STATS.map((d, i) => (
             <View key={i} style={styles.barCol}>
@@ -1867,7 +1894,8 @@ function StatsScreen({ T }) {
           ))}
         </View>
       </Card>
-      <Card T={T} title="آيات مقروءة يومياً">
+
+      <Card T={T} title="آيات مقروءة يومياً (مرجعي)">
         <View style={[styles.barsRow, { height: 80 }]}>
           {WEEKLY_STATS.map((d, i) => (
             <View key={i} style={styles.barCol}>
@@ -1878,21 +1906,22 @@ function StatsScreen({ T }) {
           ))}
         </View>
       </Card>
+
       <Card T={T} title="🏆 الإنجازات">
         {[
-          { icon: "🌟", label: "حافظ الفاتحة",        done: true,  desc: "قرأت سورة الفاتحة كاملة" },
-          { icon: "📿", label: "100 تسبيحة في يوم",   done: true,  desc: "سبّحت 100 مرة في يوم واحد" },
-          { icon: "🔥", label: "7 أيام متتالية",       done: true,  desc: "استخدمت التطبيق 7 أيام متتالية" },
-          { icon: "📖", label: "ختمة كاملة",           done: false, desc: "اقرأ القرآن كاملاً" },
-          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false, desc: "أكمل أذكار النوم 30 يوماً" },
+          { icon: "🌟", label: "حافظ الفاتحة",        done: totalAyahsRead >= 7,   desc: "قرأت سورة الفاتحة كاملة" },
+          { icon: "📿", label: "100 تسبيحة في يوم",   done: totalTasbeeh >= 100,   desc: "سبّحت 100 مرة" },
+          { icon: "🔥", label: "7 أيام متتالية",       done: streak >= 7,           desc: "استخدمت التطبيق 7 أيام متتالية" },
+          { icon: "📖", label: "ختمة كاملة",           done: false,                 desc: "اقرأ القرآن كاملاً" },
+          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false,                 desc: "أكمل أذكار النوم 30 يوماً" },
         ].map((a, i) => (
           <View key={i} style={[styles.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }]}>
-            <Text style={[styles.achievementIcon, { fontSize: 26 }]}>{a.icon}</Text>
+            <Text style={{ fontSize: 26 }}>{a.icon}</Text>
             <View style={{ flex: 1 }}>
               <Text style={[styles.achievementLabel, { color: a.done ? "#e2e8f0" : "#444", fontWeight: "700" }]}>{a.label}</Text>
               <Text style={{ color: a.done ? "#22c55e88" : "#333", fontSize: 11, marginTop: 2 }}>{a.desc}</Text>
             </View>
-            <Text style={[styles.achievementCheck, { fontSize: 22 }]}>{a.done ? "✅" : "🔒"}</Text>
+            <Text style={{ fontSize: 22 }}>{a.done ? "✅" : "🔒"}</Text>
           </View>
         ))}
       </Card>
@@ -1906,12 +1935,24 @@ function SettingsScreen({
   azanOn, setAzanOn, salahOn, setSalahOn, salahInt, setSalahInt,
   preOn, setPreOn, autoAzkar, setAutoAzkar, travelOn, setTravelOn,
   fastOn, setFastOn, fastMT, setFastMT, fastWD, setFastWD,
-  activeThemeId, unlockedIds, onSelect, onBuy, vipPurchased, showDonate, sendNotif,
-  onOpenFatwa,
-  // [تعديل 1]: props الدعم
-  supportDone, supportLoading, onSupportPurchase,
+  activeThemeId, unlockedIds, onSelect, onBuy, vipPurchased, sendNotif,
+  onOpenFatwa, onOpenAbout,
+  supportDone,
+  reminderEnabled, setReminderEnabled,
+  reminderIntervalMins, setReminderIntervalMins,
+  dailyReminderTime, setDailyReminderTime,
 }) {
   const bubbleGlow = useRef(new Animated.Value(0.7)).current;
+  const [dailyHour, setDailyHour]     = useState(dailyReminderTime.split(":")[0] || "07");
+  const [dailyMinute, setDailyMinute] = useState(dailyReminderTime.split(":")[1] || "00");
+
+  const applyTime = () => {
+    const h = dailyHour.padStart(2, "0");
+    const m = dailyMinute.padStart(2, "0");
+    setDailyReminderTime(`${h}:${m}`);
+    sendNotif(`✅ التذكير اليومي: ${h}:${m}`);
+  };
+
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -1992,7 +2033,10 @@ function SettingsScreen({
             value={masterPromo}
             onChangeText={setMasterPromo}
           />
-          <TouchableOpacity style={[styles.promoBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]} onPress={handleMasterPromo}>
+          <TouchableOpacity
+            style={[styles.promoBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+            onPress={handleMasterPromo}
+          >
             <Text style={[styles.promoBtnText, { color: T.accent }]}>تفعيل</Text>
           </TouchableOpacity>
         </View>
@@ -2002,27 +2046,25 @@ function SettingsScreen({
         {adFree ? <Text style={styles.promoAdFree}>✅ الإعلانات محذوفة</Text> : null}
       </Card>
 
-      {/* [تعديل 1]: زر دعم استمرار التطوير — يختفي بعد الشراء */}
+      {/* Donation — ONLY for genuine payers (supportDone=false means pending real transaction) */}
       {!supportDone && (
         <Card T={T} title="">
           <TouchableOpacity
-            onPress={onSupportPurchase}
-            disabled={supportLoading}
-            style={{ opacity: supportLoading ? 0.6 : 1 }}
+            onPress={() => {
+              // NOTE: Google Play IAP integration pending — placeholder flow
+              sendNotif("⏳ سيتم دعم Google Play قريباً");
+            }}
           >
             <LinearGradient colors={["#f59e0b", "#d97706"]} style={styles.donateBtn}>
-              <Text style={styles.donateBtnText}>
-                {supportLoading ? "⏳ جارٍ المعالجة..." : "💛 دعم استمرار وتطوير التطبيق"}
-              </Text>
+              <Text style={styles.donateBtnText}>💛 دعم استمرار وتطوير التطبيق</Text>
             </LinearGradient>
           </TouchableOpacity>
           <Text style={{ color: "#555", fontSize: 11, textAlign: "center", marginTop: 6 }}>
-            منتج استهلاكي من Google Play — يجدد دعمك مع كل عملية شراء
+            تكامل Google Play IAP قيد التطوير
           </Text>
         </Card>
       )}
 
-      {/* رسالة الشكر بعد الدعم */}
       {supportDone && (
         <Card T={T} title="">
           <Text style={{ color: T.accent, textAlign: "center", fontSize: 14, fontWeight: "700", paddingVertical: 8 }}>
@@ -2031,10 +2073,66 @@ function SettingsScreen({
         </Card>
       )}
 
+      {/* Pop-up Reminders */}
+      <Card T={T} title="🔔 التذكيرات الدورية">
+        <Toggle
+          T={T}
+          label="تفعيل التذكيرات"
+          sub="أحاديث، سنن، أذكار، آية الكرسي"
+          value={reminderEnabled}
+          onChange={setReminderEnabled}
+        />
+        {reminderEnabled && (
+          <>
+            <Text style={[styles.salahIntLabel, { marginTop: 12 }]}>الفترة بين التذكيرات</Text>
+            <View style={styles.salahIntRow}>
+              {[15, 30, 60].map((v) => (
+                <TouchableOpacity key={v}
+                  style={[styles.salahIntBtn, { backgroundColor: reminderIntervalMins === v ? T.accentSoft : "#111", borderColor: reminderIntervalMins === v ? T.accent : "#222" }]}
+                  onPress={() => setReminderIntervalMins(v)}
+                >
+                  <Text style={[styles.salahIntBtnText, { color: reminderIntervalMins === v ? T.accent : "#555" }]}>{v} دقيقة</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={[styles.salahIntLabel, { marginTop: 14 }]}>وقت التذكير اليومي</Text>
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginTop: 6 }}>
+              <TextInput
+                style={[styles.promoInput, { flex: 1, borderColor: T.cardBorder }]}
+                placeholder="الساعة (00-23)"
+                placeholderTextColor="#555"
+                keyboardType="numeric"
+                maxLength={2}
+                textAlign="center"
+                value={dailyHour}
+                onChangeText={setDailyHour}
+              />
+              <Text style={{ color: "#888", fontSize: 18, fontWeight: "700" }}>:</Text>
+              <TextInput
+                style={[styles.promoInput, { flex: 1, borderColor: T.cardBorder }]}
+                placeholder="الدقيقة (00-59)"
+                placeholderTextColor="#555"
+                keyboardType="numeric"
+                maxLength={2}
+                textAlign="center"
+                value={dailyMinute}
+                onChangeText={setDailyMinute}
+              />
+              <TouchableOpacity
+                style={[styles.promoBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
+                onPress={applyTime}
+              >
+                <Text style={[styles.promoBtnText, { color: T.accent }]}>حفظ</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </Card>
+
       {/* Azan & alerts */}
       <Card T={T} title="🔊 الأذان والتنبيهات الصوتية">
-        <Toggle T={T} label="📡 أذان الصلوات الخمس"  sub="صوت الأذان عند وقت كل صلاة"  value={azanOn}   onChange={setAzanOn} />
-        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ" sub="تنبيه صوتي دوري"              value={salahOn}  onChange={setSalahOn} />
+        <Toggle T={T} label="📡 أذان الصلوات الخمس"  sub="صوت الأذان عند وقت كل صلاة"  value={azanOn}    onChange={setAzanOn} />
+        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ" sub="تنبيه صوتي دوري"              value={salahOn}   onChange={setSalahOn} />
         {salahOn && (
           <View style={styles.salahIntWrap}>
             <Text style={styles.salahIntLabel}>كل كم دقيقة؟</Text>
@@ -2050,9 +2148,9 @@ function SettingsScreen({
             </View>
           </View>
         )}
-        <Toggle T={T} label="⏰ تنبيه قبل الصلاة"   sub="تحذير 15 دقيقة قبل كل أذان"   value={preOn}    onChange={setPreOn} />
-        <Toggle T={T} label="🤲 أذكار تلقائية"       sub="صباح 7:00 ومغرب كل يوم"       value={autoAzkar} onChange={setAutoAzkar} />
-        <Toggle T={T} label="🚗 مُذكِّر السفر الذكي"  sub="تشغيل تلقائي عند السرعة > 40 كم/س" value={travelOn} onChange={setTravelOn} />
+        <Toggle T={T} label="⏰ تنبيه قبل الصلاة"    sub="تحذير 15 دقيقة قبل كل أذان"   value={preOn}     onChange={setPreOn} />
+        <Toggle T={T} label="🤲 أذكار تلقائية"        sub="صباح 7:00 ومغرب كل يوم"       value={autoAzkar}  onChange={setAutoAzkar} />
+        <Toggle T={T} label="🚗 مُذكِّر السفر الذكي"   sub="تشغيل تلقائي عند السرعة > 40 كم/س" value={travelOn} onChange={setTravelOn} />
       </Card>
 
       {/* Fasting */}
@@ -2066,11 +2164,16 @@ function SettingsScreen({
         )}
       </Card>
 
-      {/* App info */}
+      {/* About App — triggers modal */}
       <Card T={T} title="ℹ️ عن التطبيق">
-        <RI label="الإصدار"         value="3.0.0" />
-        <RI label="المطور"          value="nbare1997" />
-        <RI label="البيانات القرآنية" value="محققة ومعتمدة 100%" />
+        <TouchableOpacity
+          style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder, marginTop: 4 }]}
+          onPress={onOpenAbout}
+        >
+          <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>📋 عرض تفاصيل التطبيق</Text>
+        </TouchableOpacity>
+        <RI label="الإصدار"            value="3.0.0" />
+        <RI label="البيانات القرآنية"   value="محققة ومعتمدة 100%" />
       </Card>
     </ScrollView>
   );
@@ -2078,327 +2181,319 @@ function SettingsScreen({
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  appRoot: { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center" },
-  screensWrap: { flex: 1, paddingBottom: 80 },
+  appRoot:      { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center" },
+  screensWrap:  { flex: 1, paddingBottom: 80 },
 
-  splashWrap: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
-  splashGlow: { position: "absolute", width: 320, height: 320, borderRadius: 160, backgroundColor: "#22c55e1a", top: "28%" },
-  splashEmoji: { fontSize: 72, marginBottom: 4 },
-  splashTitle: { color: "#fff", fontSize: 46, fontWeight: "900", letterSpacing: 3 },
-  splashSub: { color: "#666", fontSize: 15, marginTop: 6 },
-  splashBarTrack: { width: 140, height: 3, backgroundColor: "#111", borderRadius: 2, marginTop: 44, overflow: "hidden" },
+  splashWrap:    { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
+  splashGlow:    { position: "absolute", width: 320, height: 320, borderRadius: 160, backgroundColor: "#22c55e1a", top: "28%" },
+  splashEmoji:   { fontSize: 72, marginBottom: 4 },
+  splashTitle:   { color: "#fff", fontSize: 46, fontWeight: "900", letterSpacing: 3 },
+  splashSub:     { color: "#666", fontSize: 15, marginTop: 6 },
+  splashBarTrack:{ width: 140, height: 3, backgroundColor: "#111", borderRadius: 2, marginTop: 44, overflow: "hidden" },
   splashBarFill: { height: "100%", width: "70%", backgroundColor: "#22c55e" },
 
-  adWrap: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", position: "relative" },
-  adBadge: { position: "absolute", top: 16, left: 16, backgroundColor: "#1a1a1a", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
+  adWrap:      { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", position: "relative" },
+  adBadge:     { position: "absolute", top: 16, left: 16, backgroundColor: "#1a1a1a", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 },
   adBadgeText: { color: "#666", fontSize: 11 },
-  adEmoji: { fontSize: 56, marginBottom: 14 },
-  adTitle: { color: "#fff", fontSize: 26, fontWeight: "800" },
-  adSub: { color: "#666", fontSize: 14, marginTop: 8, textAlign: "center", maxWidth: 260 },
-  adSkip: { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
-  adSkipText: { color: "#ccc", fontSize: 13 },
+  adEmoji:     { fontSize: 56, marginBottom: 14 },
+  adTitle:     { color: "#fff", fontSize: 26, fontWeight: "800" },
+  adSub:       { color: "#666", fontSize: 14, marginTop: 8, textAlign: "center", maxWidth: 260 },
+  adSkip:      { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
+  adSkipText:  { color: "#ccc", fontSize: 13 },
 
-  mamaWrap: { position: "absolute", bottom: 95, left: 0, right: 0, alignItems: "center", zIndex: 200 },
-  mamaBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#1a0005", borderWidth: 1, borderColor: "#e11d4860", borderRadius: 22, paddingHorizontal: 20, paddingVertical: 7 },
-  mamaHeart: { fontSize: 15 },
-  mamaText: { color: "#ff2d5f", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
+  mamaWrap:   { position: "absolute", bottom: 95, left: 0, right: 0, alignItems: "center", zIndex: 200 },
+  mamaBadge:  { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#1a0005", borderWidth: 1, borderColor: "#e11d4860", borderRadius: 22, paddingHorizontal: 20, paddingVertical: 7 },
+  mamaHeart:  { fontSize: 15 },
+  mamaText:   { color: "#ff2d5f", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
 
-  toast: { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
+  toast:     { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
   toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
 
-  // [تعديل 3]: فقاعة المسبحة القابلة للسحب — الأبعاد أكبر لراحة اللمس
-  floatWidget: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    borderWidth: 2,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 10,
-    elevation: 10,
-  },
-  floatWidgetInner: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  // Reminder modal
+  reminderOverlay:     { flex: 1, backgroundColor: "#000000cc", alignItems: "center", justifyContent: "center" },
+  reminderSheet:       { borderWidth: 1.5, borderRadius: 24, padding: 24, maxWidth: 340, width: "88%", alignItems: "center" },
+  reminderBadge:       { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 4, marginBottom: 16 },
+  reminderBadgeText:   { fontSize: 12, fontWeight: "700" },
+  reminderText:        { color: "#f0e6d3", fontSize: 17, lineHeight: 30, textAlign: "center", marginBottom: 20 },
+  reminderCloseBtn:    { borderRadius: 14, paddingVertical: 11, paddingHorizontal: 28 },
+  reminderCloseBtnText:{ color: "#000", fontSize: 14, fontWeight: "800" },
+
+  floatWidget:      { width: 86, height: 86, borderRadius: 43, borderWidth: 2, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 10, elevation: 10 },
+  floatWidgetInner: { flex: 1, alignItems: "center", justifyContent: "center" },
   floatWidgetLabel: { fontSize: 10, marginTop: 1 },
   floatWidgetEmoji: { fontSize: 22 },
   floatWidgetCount: { fontSize: 18, fontWeight: "900" },
 
-  wordPopup: { position: "absolute", top: "28%", left: "50%", marginLeft: -105, width: 210, backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 20, alignItems: "center", zIndex: 800 },
-  wordPopupText: { color: "#f0e6d3", fontSize: 32, marginBottom: 12 },
+  wordPopup:    { position: "absolute", top: "28%", left: "50%", marginLeft: -105, width: 210, backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 20, alignItems: "center", zIndex: 800 },
+  wordPopupText:{ color: "#f0e6d3", fontSize: 32, marginBottom: 12 },
   soundWaveRow: { flexDirection: "row", alignItems: "center", gap: 3, height: 36, marginBottom: 8 },
   soundWaveBar: { width: 3, borderRadius: 2 },
   wordPopupSub: { color: "#666", fontSize: 12 },
 
-  modalOverlay: { flex: 1, backgroundColor: "#000000aa", alignItems: "center", justifyContent: "center" },
-  longModalBox: { backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 22, padding: 22, maxWidth: 340, width: "90%", maxHeight: "80%" },
-  longModalWord: { color: "#f0e6d3", fontSize: 32, textAlign: "center", marginBottom: 14 },
-  longModalDivider: { borderBottomWidth: 1, borderBottomColor: "#111", marginVertical: 10 },
-  longModalNoData: { color: "#666", fontSize: 13, textAlign: "center" },
-  longModalFontLabel: { color: "#e2e8f0", fontSize: 13, marginBottom: 8 },
-  longModalFontRow: { flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  longModalFontVal: { fontSize: 14, minWidth: 40, textAlign: "center" },
-  longModalHint: { color: "#888", fontSize: 12, lineHeight: 19 },
-  longModalClose: { width: "100%", marginTop: 14, borderRadius: 12, paddingVertical: 10, alignItems: "center" },
-  longModalCloseText: { color: "#000", fontSize: 14, fontWeight: "700" },
+  modalOverlay:      { flex: 1, backgroundColor: "#000000aa", alignItems: "center", justifyContent: "center" },
+  longModalBox:      { backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 22, padding: 22, maxWidth: 340, width: "90%", maxHeight: "80%" },
+  longModalWord:     { color: "#f0e6d3", fontSize: 32, textAlign: "center", marginBottom: 14 },
+  longModalDivider:  { borderBottomWidth: 1, borderBottomColor: "#111", marginVertical: 10 },
+  longModalNoData:   { color: "#666", fontSize: 13, textAlign: "center" },
+  longModalFontLabel:{ color: "#e2e8f0", fontSize: 13, marginBottom: 8 },
+  longModalFontRow:  { flexDirection: "row", gap: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  longModalFontVal:  { fontSize: 14, minWidth: 40, textAlign: "center" },
+  longModalHint:     { color: "#888", fontSize: 12, lineHeight: 19 },
+  longModalClose:    { width: "100%", marginTop: 14, borderRadius: 12, paddingVertical: 10, alignItems: "center" },
+  longModalCloseText:{ color: "#000", fontSize: 14, fontWeight: "700" },
 
-  purchaseOverlay: { flex: 1, backgroundColor: "#000000bb", justifyContent: "flex-end" },
-  purchaseSheet: { backgroundColor: "#0d0d0d", borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40, maxHeight: "85%" },
-  purchaseHandle: { width: 40, height: 4, backgroundColor: "#333", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
+  purchaseOverlay:   { flex: 1, backgroundColor: "#000000bb", justifyContent: "flex-end" },
+  purchaseSheet:     { backgroundColor: "#0d0d0d", borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40, maxHeight: "85%" },
+  purchaseHandle:    { width: 40, height: 4, backgroundColor: "#333", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
   purchaseHeaderRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 18 },
-  purchaseEmojiBox: { width: 54, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  purchaseEmoji: { fontSize: 26 },
-  purchaseName: { color: "#fff", fontSize: 16, fontWeight: "800" },
-  purchaseSubName: { color: "#666", fontSize: 12, marginTop: 2 },
-  purchasePriceBadge: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20 },
+  purchaseEmojiBox:  { width: 54, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  purchaseEmoji:     { fontSize: 26 },
+  purchaseName:      { color: "#fff", fontSize: 16, fontWeight: "800" },
+  purchaseSubName:   { color: "#666", fontSize: 12, marginTop: 2 },
+  purchasePriceBadge:{ borderWidth: 1, paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20 },
   purchasePriceText: { fontSize: 14, fontWeight: "800" },
-  purchaseDesc: { color: "#888", fontSize: 12, marginBottom: 18, lineHeight: 20 },
-  vipBox: { backgroundColor: "#ffffff08", borderWidth: 1, borderColor: "#ffffff14", borderRadius: 12, padding: 14, marginBottom: 16 },
-  vipBoxTitle: { fontSize: 13, fontWeight: "700", marginBottom: 10 },
-  vipBoxItem: { color: "#ccc", fontSize: 12, marginBottom: 6, lineHeight: 18 },
-  purchaseBuyBtn: { width: "100%", borderRadius: 14, paddingVertical: 14, alignItems: "center", marginBottom: 14 },
-  purchaseBuyBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
-  purchasePromoSection: { borderTopWidth: 1, borderTopColor: "#1e1e1e", paddingTop: 14 },
-  purchasePromoLabel: { color: "#666", fontSize: 12, marginBottom: 8 },
-  purchasePromoRow: { flexDirection: "row", gap: 8 },
-  purchasePromoInput: { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
-  purchasePromoBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
-  purchasePromoBtnText: { fontSize: 13, fontWeight: "700" },
-  purchasePromoMsg: { fontSize: 12, marginTop: 6 },
-  purchaseCancelBtn: { width: "100%", marginTop: 12, alignItems: "center" },
-  purchaseCancelText: { color: "#444", fontSize: 13 },
+  purchaseDesc:      { color: "#888", fontSize: 12, marginBottom: 18, lineHeight: 20 },
+  vipBox:            { backgroundColor: "#ffffff08", borderWidth: 1, borderColor: "#ffffff14", borderRadius: 12, padding: 14, marginBottom: 16 },
+  vipBoxTitle:       { fontSize: 13, fontWeight: "700", marginBottom: 10 },
+  vipBoxItem:        { color: "#ccc", fontSize: 12, marginBottom: 6, lineHeight: 18 },
+  purchaseBuyBtn:    { width: "100%", borderRadius: 14, paddingVertical: 14, alignItems: "center", marginBottom: 14 },
+  purchaseBuyBtnText:{ color: "#000", fontSize: 15, fontWeight: "800" },
+  purchasePromoSection:{ borderTopWidth: 1, borderTopColor: "#1e1e1e", paddingTop: 14 },
+  purchasePromoLabel:  { color: "#666", fontSize: 12, marginBottom: 8 },
+  purchasePromoRow:    { flexDirection: "row", gap: 8 },
+  purchasePromoInput:  { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
+  purchasePromoBtn:    { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
+  purchasePromoBtnText:{ fontSize: 13, fontWeight: "700" },
+  purchasePromoMsg:    { fontSize: 12, marginTop: 6 },
+  purchaseCancelBtn:   { width: "100%", marginTop: 12, alignItems: "center" },
+  purchaseCancelText:  { color: "#444", fontSize: 13 },
 
-  shWrap: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 12, borderBottomWidth: 1 },
-  shTitle: { color: "#fff", fontSize: 20, fontWeight: "800" },
-  shSub: { color: "#555", fontSize: 12, marginTop: 3 },
-  card: { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12 },
+  shWrap:    { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 12, borderBottomWidth: 1 },
+  shTitle:   { color: "#fff", fontSize: 20, fontWeight: "800" },
+  shSub:     { color: "#555", fontSize: 12, marginTop: 3 },
+  card:      { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12 },
   cardTitle: { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginBottom: 12 },
 
-  pbarRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
+  pbarRow:   { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
   pbarLabel: { color: "#888", fontSize: 12 },
-  pbarPct: { fontSize: 12, fontWeight: "700" },
+  pbarPct:   { fontSize: 12, fontWeight: "700" },
   pbarTrack: { height: 5, backgroundColor: "#111", borderRadius: 3 },
-  pbarFill: { height: "100%", borderRadius: 3 },
+  pbarFill:  { height: "100%", borderRadius: 3 },
 
-  riRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  riRow:   { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
   riLabel: { color: "#555", fontSize: 12 },
   riValue: { color: "#e2e8f0", fontSize: 13, fontWeight: "600" },
 
-  toggleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  toggleRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
   toggleLabel: { color: "#e2e8f0", fontSize: 13 },
-  toggleSub: { color: "#555", fontSize: 11, marginTop: 2 },
+  toggleSub:   { color: "#555", fontSize: 11, marginTop: 2 },
   toggleTrack: { width: 44, height: 24, borderRadius: 12, justifyContent: "center" },
   toggleThumb: { position: "absolute", top: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: "#fff" },
 
-  btn: { borderWidth: 1, borderRadius: 20 },
+  btn:     { borderWidth: 1, borderRadius: 20 },
   btnText: { fontWeight: "600" },
 
-  homeHeader: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
-  homeHeaderGreg: { color: "#555", fontSize: 11, marginBottom: 2 },
-  homeHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  homeHeaderTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  homeHeaderHijri: { fontSize: 12, textAlign: "left" },
-  homeHeaderCity: { fontSize: 11, marginTop: 3 },
+  // Home header: date block left, title right
+  homeHeader:        { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  homeHeaderDateBlock:{ flex: 1 },
+  homeHeaderGreg:    { color: "#888", fontSize: 12, marginBottom: 2 },
+  homeHeaderHijri:   { fontSize: 13, fontWeight: "700" },
+  homeHeaderTitle:   { fontSize: 22, fontWeight: "900", color: "#fff", marginLeft: 8 },
 
-  dhikrBanner: { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
+  dhikrBanner:   { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
   fastAlertText: { color: "#f59e0b", fontSize: 13, fontWeight: "700", lineHeight: 19 },
-  dhikrText: { fontSize: 14, opacity: 0.85, textAlign: "center" },
+  dhikrText:     { fontSize: 14, opacity: 0.85, textAlign: "center" },
 
-  // [تعديل 2]: العداد — نص بسيط "X دقيقة" بدون ثوانٍ
-  countdownRow: { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 },
-  countdownLabel: { color: "#666", fontSize: 12 },
-  countdownVal: { fontSize: 22, fontWeight: "900", letterSpacing: 1 },
+  countdownRow:  { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 },
+  countdownLabel:{ color: "#666", fontSize: 12 },
+  countdownVal:  { fontSize: 22, fontWeight: "900", letterSpacing: 1 },
 
-  prayerStrip: { paddingVertical: 10, borderBottomWidth: 1 },
-  prayerChip: { alignItems: "center", gap: 2, minWidth: 60, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 4 },
+  prayerStrip:    { paddingVertical: 10, borderBottomWidth: 1 },
+  prayerChip:     { alignItems: "center", gap: 2, minWidth: 60, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 4 },
   prayerChipName: { fontSize: 12, color: "#e2e8f0" },
   prayerChipTime: { fontSize: 13, fontWeight: "700" },
 
-  bookmarkCard: { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  bookmarkLabel: { color: "#666", fontSize: 11 },
-  bookmarkValue: { color: "#e2e8f0", fontSize: 14, fontWeight: "700" },
-  bookmarkBtn: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  bookmarkCard:    { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  bookmarkLabel:   { color: "#666", fontSize: 11 },
+  bookmarkValue:   { color: "#e2e8f0", fontSize: 14, fontWeight: "700" },
+  bookmarkBtn:     { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   bookmarkBtnText: { color: "#000", fontSize: 13, fontWeight: "800" },
 
-  homeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  homeGrid:     { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
   homeGridCard: { width: "47%", borderWidth: 1, borderRadius: 18, paddingVertical: 20, paddingHorizontal: 12, alignItems: "center", gap: 7 },
   homeGridIcon: { fontSize: 34 },
-  homeGridLabel: { fontSize: 14, color: "#e2e8f0", fontWeight: "700" },
-  homeGridSub: { fontSize: 11, color: "#555" },
+  homeGridLabel:{ fontSize: 14, color: "#e2e8f0", fontWeight: "700" },
+  homeGridSub:  { fontSize: 11, color: "#555" },
 
-  nextPrayerSub: { color: "#666", fontSize: 13 },
-  nextPrayerBtn: { marginTop: 10, borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8, alignSelf: "flex-start" },
+  nextPrayerSub:     { color: "#666", fontSize: 13 },
+  nextPrayerBtn:     { marginTop: 10, borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8, alignSelf: "flex-start" },
   nextPrayerBtnText: { fontSize: 13, fontWeight: "700" },
 
-  quranHeader: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
-  quranHeaderTitle: { color: "#fff", fontSize: 21, fontWeight: "800" },
-  quranHeaderSub: { color: "#555", fontSize: 12 },
-  quranSearchRow: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  quranSearchIcon: { color: "#555", fontSize: 15 },
-  quranSearchInput: { flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
-  quranSearchClear: { color: "#555", fontSize: 14 },
-  quranBookmarkRow: { alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 },
-  quranBookmarkBtn: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6 },
-  quranBookmarkBtnText: { color: "#e2e8f0", fontSize: 12 },
+  quranHeader:        { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
+  quranHeaderTitle:   { color: "#fff", fontSize: 21, fontWeight: "800" },
+  quranHeaderSub:     { color: "#555", fontSize: 12 },
+  quranSearchRow:     { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, paddingVertical: 8 },
+  quranSearchIcon:    { color: "#555", fontSize: 15 },
+  quranSearchInput:   { flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
+  quranSearchClear:   { color: "#555", fontSize: 14 },
+  quranBookmarkRow:   { alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 },
+  quranBookmarkBtn:   { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6 },
+  quranBookmarkBtnText:{ color: "#e2e8f0", fontSize: 12 },
   quranBookmarkSaved: { fontSize: 12, textAlign: "center", marginBottom: 6 },
-  ayahsBox: { backgroundColor: "#030303", borderWidth: 1, borderRadius: 18, marginHorizontal: 16, marginBottom: 12, padding: 16 },
-  basmalah: { textAlign: "center", color: "#f59e0b", fontSize: 14, marginBottom: 16, letterSpacing: 3 },
-  ayahRow: { position: "relative", flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: "#0d0d0d", borderRadius: 8 },
-  ribbonWrap: { position: "absolute", top: -2, right: -4, width: 18, height: 36, zIndex: 2 },
-  ribbonBody: { width: 18, height: 30, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
-  ribbonTriangle: { width: 0, height: 0, borderLeftWidth: 9, borderRightWidth: 9, borderTopWidth: 8, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#030303" },
-  ayahNumCircle: { minWidth: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 6 },
-  ayahNumText: { fontSize: 12 },
-  ayahWordsWrap: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
-  ayahWord: { color: "#f0e6d3", paddingHorizontal: 5, paddingVertical: 2, lineHeight: 48 },
-  ayahHint: { textAlign: "center", color: "#333", fontSize: 11, marginTop: 14 },
+  ayahsBox:     { backgroundColor: "#030303", borderWidth: 1, borderRadius: 18, marginHorizontal: 16, marginBottom: 12, padding: 16 },
+  basmalah:     { textAlign: "center", color: "#f59e0b", fontSize: 14, marginBottom: 16, letterSpacing: 3 },
+  ayahRow:      { position: "relative", flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: "#0d0d0d", borderRadius: 8 },
+  ribbonWrap:   { position: "absolute", top: -2, right: -4, width: 18, height: 36, zIndex: 2 },
+  ribbonBody:   { width: 18, height: 30, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
+  ribbonTriangle:{ width: 0, height: 0, borderLeftWidth: 9, borderRightWidth: 9, borderTopWidth: 8, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#030303" },
+  ayahNumCircle:{ minWidth: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 6 },
+  ayahNumText:  { fontSize: 12 },
+  ayahWordsWrap:{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
+  ayahWord:     { color: "#f0e6d3", paddingHorizontal: 5, paddingVertical: 2, lineHeight: 48 },
+  ayahHint:     { textAlign: "center", color: "#333", fontSize: 11, marginTop: 14 },
 
-  audioPlayer: { backgroundColor: "#050505", borderTopWidth: 1, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  audioBtnSmall: { backgroundColor: "#111", borderWidth: 1, borderColor: "#222", width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  audioBtnSmallText: { color: "#ccc", fontSize: 15 },
-  audioBtnMain: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
-  audioBtnMainText: { color: "#000", fontSize: 20, fontWeight: "800" },
-  audioProgressWrap: { flex: 1, marginRight: 8 },
+  audioPlayer:        { backgroundColor: "#050505", borderTopWidth: 1, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  audioBtnSmall:      { backgroundColor: "#111", borderWidth: 1, borderColor: "#222", width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  audioBtnSmallText:  { color: "#ccc", fontSize: 15 },
+  audioBtnMain:       { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  audioBtnMainText:   { color: "#000", fontSize: 20, fontWeight: "800" },
+  audioProgressWrap:  { flex: 1, marginRight: 8 },
   audioProgressLabel: { color: "#888", fontSize: 11, marginBottom: 4 },
   audioProgressTrack: { height: 4, backgroundColor: "#1a1a1a", borderRadius: 2 },
-  audioProgressFill: { height: "100%", borderRadius: 2 },
-  audioStatus: { fontSize: 10 },
+  audioProgressFill:  { height: "100%", borderRadius: 2 },
+  audioStatus:        { fontSize: 10 },
 
-  // [تعديل 3]: دائرة أكبر للمسبحة
-  tasbeehCenter: { alignItems: "center", paddingVertical: 24 },
-  tasbeehStage: { color: "#555", fontSize: 14, marginBottom: 20 },
-  tasbeehBtn: {
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    borderWidth: 3,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tasbeehCount: { fontSize: 64, fontWeight: "900" },
-  tasbeehTapHint: { fontSize: 12, color: "#444", marginTop: 4 },
-  tasbeehRingWrap: { marginTop: 22, alignItems: "center" },
-  tasbeehActionsRow: { flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 14, flexWrap: "wrap" },
-  tasbeehMilestone: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  tasbeehCenter:        { alignItems: "center", paddingVertical: 24 },
+  tasbeehStage:         { color: "#555", fontSize: 14, marginBottom: 20 },
+  tasbeehBtn:           { width: 210, height: 210, borderRadius: 105, borderWidth: 3, alignItems: "center", justifyContent: "center" },
+  tasbeehCount:         { fontSize: 64, fontWeight: "900" },
+  tasbeehTapHint:       { fontSize: 12, color: "#444", marginTop: 4 },
+  tasbeehRingWrap:      { marginTop: 22, alignItems: "center" },
+  tasbeehActionsRow:    { flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 14, flexWrap: "wrap" },
+  tasbeehMilestone:     { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   tasbeehMilestoneText: { fontSize: 12 },
 
-  qiblaWrap: { alignItems: "center", paddingVertical: 28, paddingHorizontal: 16 },
-  qiblaCircle: { width: 240, height: 240, borderRadius: 120, borderWidth: 4, backgroundColor: "#050505", alignItems: "center", justifyContent: "center", position: "relative" },
-  qiblaDir: { position: "absolute", color: "#333", fontSize: 12, fontWeight: "700" },
-  qiblaDirN: { top: 10, left: "50%", marginLeft: -6 },
-  qiblaDirE: { right: 10, top: "50%", marginTop: -8 },
-  qiblaDirS: { bottom: 10, left: "50%", marginLeft: -6 },
-  qiblaDirW: { left: 10, top: "50%", marginTop: -8 },
-  qiblaNeedleWrap: { position: "absolute", width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
-  qiblaArrowUpWrap: { position: "absolute", top: 18, alignItems: "center" },
-  qiblaArrowUp: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent" },
-  qiblaArrowDownWrap: { position: "absolute", bottom: 18, alignItems: "center" },
-  qiblaArrowDown: { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#333" },
-  qiblaKaaba: { fontSize: 38, zIndex: 2 },
-  qiblaStatusWrap: { marginTop: 26, alignItems: "center" },
-  qiblaAligned: { color: "#22c55e", fontSize: 20, fontWeight: "800" },
-  qiblaNotAligned: { color: "#ef4444", fontSize: 16 },
-  qiblaAngle: { color: "#444", fontSize: 13, marginTop: 8, textAlign: "center" },
+  qiblaWrap:         { alignItems: "center", paddingVertical: 28, paddingHorizontal: 16 },
+  qiblaCircle:       { width: 240, height: 240, borderRadius: 120, borderWidth: 4, backgroundColor: "#050505", alignItems: "center", justifyContent: "center", position: "relative" },
+  qiblaDir:          { position: "absolute", color: "#333", fontSize: 12, fontWeight: "700" },
+  qiblaDirN:         { top: 10, left: "50%", marginLeft: -6 },
+  qiblaDirE:         { right: 10, top: "50%", marginTop: -8 },
+  qiblaDirS:         { bottom: 10, left: "50%", marginLeft: -6 },
+  qiblaDirW:         { left: 10, top: "50%", marginTop: -8 },
+  qiblaNeedleWrap:   { position: "absolute", width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
+  qiblaArrowUpWrap:  { position: "absolute", top: 18, alignItems: "center" },
+  qiblaArrowUp:      { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent" },
+  qiblaArrowDownWrap:{ position: "absolute", bottom: 18, alignItems: "center" },
+  qiblaArrowDown:    { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#333" },
+  qiblaKaaba:        { fontSize: 38, zIndex: 2 },
+  qiblaStatusWrap:   { marginTop: 26, alignItems: "center" },
+  qiblaAligned:      { color: "#22c55e", fontSize: 20, fontWeight: "800" },
+  qiblaNotAligned:   { color: "#ef4444", fontSize: 16 },
+  qiblaAngle:        { color: "#444", fontSize: 13, marginTop: 8, textAlign: "center" },
 
-  azkarGridRow: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
-  azkarGridBtn: { width: "30%", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 10, gap: 4 },
-  azkarGridText: { fontSize: 11 },
-  azkarListWrap: { flex: 1, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 80 },
-  azkarCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
-  azkarCardDone: { opacity: 0.35 },
-  azkarCardLabel: { fontSize: 11, marginBottom: 8, fontWeight: "700" },
-  azkarCardText: { color: "#e2e8f0", fontSize: 16, lineHeight: 30 },
-  azkarCardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
-  azkarRecordBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
-  azkarRecordBtnText: { fontSize: 12 },
-  azkarCounterCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#111", alignItems: "center", justifyContent: "center" },
-  azkarCounterText: { fontSize: 13, fontWeight: "700" },
-  azkarDoneText: { color: "#22c55e", fontSize: 12, marginTop: 4 },
+  azkarGridRow:      { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
+  azkarGridBtn:      { width: "30%", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 10, gap: 4 },
+  azkarGridText:     { fontSize: 11 },
+  azkarListWrap:     { flex: 1, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 80 },
+  azkarCard:         { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  azkarCardDone:     { opacity: 0.35 },
+  azkarCardLabel:    { fontSize: 11, marginBottom: 8, fontWeight: "700" },
+  azkarCardText:     { color: "#e2e8f0", fontSize: 16, lineHeight: 30 },
+  azkarCardFooter:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
+  azkarRecordBtn:    { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
+  azkarRecordBtnText:{ fontSize: 12 },
+  azkarCounterCircle:{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#111", alignItems: "center", justifyContent: "center" },
+  azkarCounterText:  { fontSize: 13, fontWeight: "700" },
+  azkarDoneText:     { color: "#22c55e", fontSize: 12, marginTop: 4 },
 
   fatwaModalOverlay: { flex: 1, backgroundColor: "#000000bb", justifyContent: "flex-end" },
-  fatwaModalSheet: { borderWidth: 1, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 30, maxHeight: "88%", flex: 0.88 },
-  fatwaModalHeader: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1 },
-  fatwaModalIcon: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  fatwaModalTitle: { fontSize: 15, fontWeight: "800" },
-  fatwaModalSub: { color: "#555", fontSize: 11, marginTop: 2 },
-  fatwaModalClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" },
-  fatwaModalCloseText: { color: "#888", fontSize: 14 },
+  fatwaModalSheet:   { borderWidth: 1, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 30, maxHeight: "88%", flex: 0.88 },
+  fatwaModalHeader:  { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 14, borderBottomWidth: 1 },
+  fatwaModalIcon:    { width: 48, height: 48, borderRadius: 24, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  fatwaModalTitle:   { fontSize: 15, fontWeight: "800" },
+  fatwaModalSub:     { color: "#555", fontSize: 11, marginTop: 2 },
+  fatwaModalClose:   { width: 34, height: 34, borderRadius: 17, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" },
+  fatwaModalCloseText:{ color: "#888", fontSize: 14 },
 
-  fatwaBubbleSection: { marginHorizontal: 16, marginVertical: 14 },
+  fatwaBubbleSection:   { marginHorizontal: 16, marginVertical: 14 },
   fatwaBubbleContainer: { borderRadius: 20, overflow: "hidden" },
-  fatwaBubbleBtn: { borderWidth: 1.5, borderRadius: 20, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 8, overflow: "hidden" },
-  fatwaBubbleGrad: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 19 },
-  fatwaBubbleEmoji: { fontSize: 28 },
-  fatwaBubbleTitle: { fontSize: 14, fontWeight: "800" },
-  fatwaBubbleSub: { color: "#666", fontSize: 11, marginTop: 2 },
-  fatwaBubbleDot: { width: 9, height: 9, borderRadius: 5 },
+  fatwaBubbleBtn:       { borderWidth: 1.5, borderRadius: 20, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 8, overflow: "hidden" },
+  fatwaBubbleGrad:      { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 19 },
+  fatwaBubbleEmoji:     { fontSize: 28 },
+  fatwaBubbleTitle:     { fontSize: 14, fontWeight: "800" },
+  fatwaBubbleSub:       { color: "#666", fontSize: 11, marginTop: 2 },
+  fatwaBubbleDot:       { width: 9, height: 9, borderRadius: 5 },
 
-  fatwaChatWrap: { flex: 1, paddingHorizontal: 14, paddingTop: 12 },
-  fatwaMsgRow: { flexDirection: "row", marginBottom: 10 },
-  fatwaBubble: { maxWidth: "82%", borderWidth: 1, borderRadius: 16, padding: 12 },
-  fatwaAiLabel: { fontSize: 10, marginBottom: 5, fontWeight: "700" },
-  fatwaMsgText: { color: "#e2e8f0", fontSize: 13, lineHeight: 22 },
-  fatwaTypingBubble: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 10 },
-  fatwaTypingRow: { flexDirection: "row", gap: 5, alignItems: "center" },
-  fatwaTypingDot: { width: 6, height: 6, borderRadius: 3, opacity: 0.6 },
-  fatwaTypingText: { color: "#666", fontSize: 11, marginRight: 6 },
-  fatwaChipsRow: { paddingVertical: 6, borderTopWidth: 1 },
-  fatwaChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 5 },
-  fatwaChipText: { fontSize: 11 },
-  fatwaInputRow: { flexDirection: "row", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, alignItems: "center" },
-  fatwaInput: { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14 },
-  fatwaSendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  fatwaChatWrap:    { flex: 1, paddingHorizontal: 14, paddingTop: 12 },
+  fatwaMsgRow:      { flexDirection: "row", marginBottom: 10 },
+  fatwaBubble:      { maxWidth: "82%", borderWidth: 1, borderRadius: 16, padding: 12 },
+  fatwaAiLabel:     { fontSize: 10, marginBottom: 5, fontWeight: "700" },
+  fatwaMsgText:     { color: "#e2e8f0", fontSize: 13, lineHeight: 22 },
+  fatwaTypingBubble:{ borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 10 },
+  fatwaTypingRow:   { flexDirection: "row", gap: 5, alignItems: "center" },
+  fatwaTypingDot:   { width: 6, height: 6, borderRadius: 3, opacity: 0.6 },
+  fatwaTypingText:  { color: "#666", fontSize: 11, marginRight: 6 },
+  fatwaChipsRow:    { paddingVertical: 6, borderTopWidth: 1 },
+  fatwaChip:        { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 5 },
+  fatwaChipText:    { fontSize: 11 },
+  fatwaInputRow:    { flexDirection: "row", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, alignItems: "center" },
+  fatwaInput:       { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 14 },
+  fatwaSendBtn:     { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   fatwaSendBtnText: { color: "#000", fontSize: 18, fontWeight: "800" },
 
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
-  statBox: { width: "47%", backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 14, padding: 14, alignItems: "center" },
-  statIcon: { fontSize: 22 },
-  statVal: { fontSize: 24, fontWeight: "900" },
-  statUnit: { fontSize: 10 },
+  statBox:   { width: "47%", backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 14, padding: 14, alignItems: "center" },
+  statIcon:  { fontSize: 22 },
+  statVal:   { fontSize: 24, fontWeight: "900" },
+  statUnit:  { fontSize: 10 },
   statLabel: { fontSize: 11, color: "#555", marginTop: 2, textAlign: "center" },
-  barsRow: { flexDirection: "row", alignItems: "flex-end", gap: 6, height: 100 },
-  barCol: { flex: 1, alignItems: "center", gap: 3 },
-  barVal: { fontSize: 9 },
-  barFill: { width: "100%", borderRadius: 3, borderTopWidth: 2 },
-  barDay: { fontSize: 9, color: "#444" },
-  achievementRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  barsRow:   { flexDirection: "row", alignItems: "flex-end", gap: 6, height: 100 },
+  barCol:    { flex: 1, alignItems: "center", gap: 3 },
+  barVal:    { fontSize: 9 },
+  barFill:   { width: "100%", borderRadius: 3, borderTopWidth: 2 },
+  barDay:    { fontSize: 9, color: "#444" },
+  achievementRow:  { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
   achievementIcon: { fontSize: 20 },
-  achievementLabel: { flex: 1, fontSize: 13 },
-  achievementCheck: { fontSize: 16 },
+  achievementLabel:{ flex: 1, fontSize: 13 },
+  achievementCheck:{ fontSize: 16 },
 
-  themeRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  themeEmojiBox: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  themeEmoji: { fontSize: 20 },
-  themeName: { color: "#e2e8f0", fontSize: 13, fontWeight: "700" },
-  themeDesc: { color: "#555", fontSize: 11, marginTop: 1 },
-  themeActionBtn: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
+  themeRow:        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  themeEmojiBox:   { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  themeEmoji:      { fontSize: 20 },
+  themeName:       { color: "#e2e8f0", fontSize: 13, fontWeight: "700" },
+  themeDesc:       { color: "#555", fontSize: 11, marginTop: 1 },
+  themeActionBtn:  { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
   themeActionText: { fontSize: 11 },
 
-  promoRow: { flexDirection: "row", gap: 8 },
-  promoInput: { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
-  promoBtn: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
+  promoRow:     { flexDirection: "row", gap: 8 },
+  promoInput:   { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
+  promoBtn:     { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
   promoBtnText: { fontSize: 13, fontWeight: "700" },
-  promoMsg: { fontSize: 12, marginTop: 8 },
-  promoAdFree: { color: "#22c55e", fontSize: 12, marginTop: 8 },
+  promoMsg:     { fontSize: 12, marginTop: 8 },
+  promoAdFree:  { color: "#22c55e", fontSize: 12, marginTop: 8 },
 
-  // [تعديل 1]: زر الدعم
-  donateBtn: { borderRadius: 14, paddingVertical: 14, alignItems: "center" },
+  donateBtn:     { borderRadius: 14, paddingVertical: 14, alignItems: "center" },
   donateBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
 
-  salahIntWrap: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  salahIntLabel: { color: "#888", fontSize: 12, marginBottom: 8 },
-  salahIntRow: { flexDirection: "row", gap: 8 },
-  salahIntBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
+  salahIntWrap:    { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  salahIntLabel:   { color: "#888", fontSize: 12, marginBottom: 8 },
+  salahIntRow:     { flexDirection: "row", gap: 8 },
+  salahIntBtn:     { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
   salahIntBtnText: { fontSize: 12 },
 
-  bottomAd: { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 82, left: 0, right: 0, zIndex: 90 },
+  bottomAd:     { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 82, left: 0, right: 0, zIndex: 90 },
   bottomAdText: { color: "#333", fontSize: 11 },
-  bottomNav: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 10, paddingBottom: 24 },
-  bottomNavContent: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 4 },
-  navTabBtn: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
-  navTabIconWrap: { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
-  navTabIcon: { fontSize: 20 },
-  navTabLabel: { fontSize: 9, marginTop: 1, letterSpacing: 0.3 },
+  bottomNav:       { position: "absolute", bottom: 0, left: 0, right: 0, borderTopWidth: 1, zIndex: 100, paddingTop: 10, paddingBottom: 24 },
+  bottomNavContent:{ flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingHorizontal: 4 },
+  navTabBtn:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 3 },
+  navTabIconWrap:  { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
+  navTabIcon:      { fontSize: 20 },
+  navTabLabel:     { fontSize: 9, marginTop: 1, letterSpacing: 0.3 },
+
+  // About modal
+  aboutTitle:      { color: "#fff", fontSize: 20, fontWeight: "900", textAlign: "center", marginBottom: 12 },
+  aboutDivider:    { height: 1, marginVertical: 12 },
+  aboutSection:    { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginTop: 4, marginBottom: 8 },
+  aboutFeature:    { color: "#888", fontSize: 13, lineHeight: 24 },
+  aboutDisclaimer: { color: "#555", fontSize: 11, lineHeight: 18, textAlign: "center", marginTop: 8 },
 });
