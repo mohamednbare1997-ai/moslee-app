@@ -1,11 +1,22 @@
-//  السكربت الكامل
+import QiblaScreen from "./screens/QiblaScreen";
+import TasbeehScreen from "./screens/TasbeehScreen";
+import AzkarScreen from "./screens/AzkarScreen";
+import StatsScreen from "./screens/StatsScreen";
+import QuranScreen from "./screens/QuranScreen";
+import HomeScreen from "./screens/HomeScreen";
+import SettingsScreen from "./screens/SettingsScreen";
+import { AppIcon } from "./components/Icons";
+import { Magnetometer } from 'expo-sensors';
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  مُصلِّي — App.js  |  Expo 51
-//  AUDIO NOTE: Full audio asset integration and sound programming will be
-//  implemented in future updates. Current implementation uses remote CDN URLs
-//  as temporary placeholders for all audio (Quran recitation, Azan, reminders).
-// ─────────────────────────────────────────────────────────────────────────────
+import * as Notifications from "expo-notifications";
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -23,6 +34,7 @@ import {
   PanResponder,
   I18nManager,
 } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Text as SvgText } from "react-native-svg";
@@ -30,7 +42,6 @@ import * as Crypto from "expo-crypto";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
 
-// ── فرض RTL عالمياً ──────────────────────────────────────────────────────────
 if (!I18nManager.isRTL) {
   I18nManager.allowRTL(true);
   I18nManager.forceRTL(true);
@@ -38,8 +49,8 @@ if (!I18nManager.isRTL) {
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
-// ─── THEME DEFINITIONS ────────────────────────────────────────────────────────
-const THEMES = [
+// ─── THEMES (المصدر الوحيد — يُمرَّر كـ prop لكل الشاشات) ──────────────────
+export const THEMES = [
   {
     id: "royal_black", name: "الثيم الأسود الملكي", price: "مجاني", free: true, emoji: "🖤",
     accent: "#d4d4d8", accentSoft: "#ffffff14", accentBorder: "#ffffff28",
@@ -79,7 +90,6 @@ const THEMES = [
 
 const getTheme = (id) => THEMES.find((t) => t.id === id) ?? THEMES[1];
 
-// ─── QURAN DATA ───────────────────────────────────────────────────────────────
 const FATIHA = [
   { id: 1, text: "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ", words: ["بِسْمِ", "ٱللَّهِ", "ٱلرَّحْمَـٰنِ", "ٱلرَّحِيمِ"] },
   { id: 2, text: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ", words: ["ٱلْحَمْدُ", "لِلَّهِ", "رَبِّ", "ٱلْعَـٰلَمِينَ"] },
@@ -119,7 +129,6 @@ const WORD_MEANINGS = {
   "ٱلضَّآلِّينَ": { m: "الذين ضلوا عن الحق", r: "ض ل ل", g: "معطوف" },
 };
 
-// ─── REMINDER CONTENT POOL ────────────────────────────────────────────────────
 const REMINDER_POOL = [
   { type: "سنة",   text: "قراءة سورة الكهف يوم الجمعة نور من الجمعة إلى الجمعة." },
   { type: "حديث",  text: "قال ﷺ: «مَن قالَ سُبحانَ الله وبحَمده في يومٍ مئةَ مرَّة حُطَّت خطاياه»." },
@@ -133,7 +142,6 @@ const REMINDER_POOL = [
   { type: "حديث",  text: "قال ﷺ: «مَن صلَّى عليَّ صلاةً صلَّى اللهُ عليهِ بِها عَشرًا»." },
 ];
 
-// ─── AZKAR DATA ───────────────────────────────────────────────────────────────
 const MORNING_AZKAR = [
   { text: "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ", count: 1, label: "الاستعاذة" },
   { text: "اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ", count: 1, label: "آية الكرسي" },
@@ -199,7 +207,6 @@ const VIP_DHIKR_SLOTS = [
   "سبحان الله وبحمده عدد خلقه ورضا نفسه وزنة عرشه ومداد كلماته",
 ];
 
-// ─── AUDIO SOURCES ────────────────────────────────────────────────────────────
 const AUDIO_SOURCES = {
   fatiha: [
     "https://cdn.islamic.network/quran/audio/128/ar.alafasy/1.mp3",
@@ -214,7 +221,6 @@ const AUDIO_SOURCES = {
   salahReminder: "https://cdn.islamic.network/quran/audio/128/ar.alafasy/2.mp3",
 };
 
-// ─── KEYS FOR ASYNCSTORAGE ────────────────────────────────────────────────────
 const STORAGE_KEYS = {
   TASBEEH_COUNT:    "@musalli_tasbeeh",
   STREAK_DAYS:      "@musalli_streak",
@@ -229,15 +235,13 @@ const STORAGE_KEYS = {
   REMINDER_ENABLED: "@musalli_reminder_enabled",
   REMINDER_INT:     "@musalli_reminder_int",
   REMINDER_DAILY:   "@musalli_reminder_daily",
-  // FIX #2: Genuine purchase tracking fields
   PURCHASED_IDS:    "@musalli_purchased_ids",
   VIP_PURCHASED:    "@musalli_vip_purchased",
+  AZAN_FIRED_DATE:  "@musalli_azan_fired_date",
 };
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
 function pad(n) { return String(n).padStart(2, "0"); }
 
-// FIX #4: overflow-safe minute → h/m formatting
 function formatMinutes(totalMinutes) {
   const safe = Math.max(0, Math.floor(totalMinutes || 0));
   if (safe < 60) return `${safe} دقيقة`;
@@ -247,7 +251,6 @@ function formatMinutes(totalMinutes) {
   return `${h}س ${m}د`;
 }
 
-// FIX #4: overflow-safe seconds → display string
 function formatSeconds(totalSeconds) {
   const safe = Math.max(0, Math.floor(totalSeconds || 0));
   if (safe < 60) return `${safe} ث`;
@@ -309,14 +312,25 @@ function parseTimeMins(str) {
   return (h || 0) * 60 + (m || 0);
 }
 
-// ─── PROMO CODE SECURITY ──────────────────────────────────────────────────────
+function smoothAngle(prevAngle, newAngle, alpha = 0.15) {
+  let diff = newAngle - prevAngle;
+  diff = ((diff + 180) % 360 + 360) % 360 - 180;
+  let result = prevAngle + alpha * diff;
+  result = ((result % 360) + 360) % 360;
+  return result;
+}
+
+function todayKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 const MASTER_CODE_HASH = "bf311209c274eee020a4408527e4224905691a7117a96fdfece63fa82159ea75";
 
 async function hashCode(input) {
   return await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, input.trim());
 }
 
-// ─── ASYNCSTORAGE HELPERS ─────────────────────────────────────────────────────
 async function saveData(key, value) {
   try { await AsyncStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
 }
@@ -328,15 +342,22 @@ async function loadData(key, fallback) {
   return fallback;
 }
 
-// ─── SHARED UI COMPONENTS ─────────────────────────────────────────────────────
-function SH({ title, sub, T }) {
-  return (
-    <View style={[styles.shWrap, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
-      <Text style={styles.shTitle}>{title}</Text>
-      {sub ? <Text style={styles.shSub}>{sub}</Text> : null}
-    </View>
-  );
-}
+const PRODUCT_IDS = {
+  royal_gold:  "musalli_theme_royal_gold",
+  sufi_purple: "musalli_theme_sufi_purple",
+  vip_royal:   "musalli_vip_royal_bundle",
+};
+
+const purchaseService = {
+  isDemoMode: true,
+  async buy(themeId) {
+    if (this.isDemoMode) {
+      await new Promise((res) => setTimeout(res, 350));
+      return { success: true, demo: true, productId: PRODUCT_IDS[themeId] || themeId };
+    }
+    return { success: false, demo: false, error: "IAP غير مفعّل بعد" };
+  },
+};
 
 function Card({ T, title, children, style }) {
   return (
@@ -347,44 +368,11 @@ function Card({ T, title, children, style }) {
   );
 }
 
-function PBar({ T, label, pct, color }) {
-  const c = color || T.accent;
-  return (
-    <View style={{ marginBottom: 10 }}>
-      <View style={styles.pbarRow}>
-        <Text style={styles.pbarLabel}>{label}</Text>
-        <Text style={[styles.pbarPct, { color: c }]}>{pct}%</Text>
-      </View>
-      <View style={styles.pbarTrack}>
-        <View style={[styles.pbarFill, { width: `${Math.min(100, pct)}%`, backgroundColor: c }]} />
-      </View>
-    </View>
-  );
-}
-
 function RI({ label, value }) {
   return (
     <View style={styles.riRow}>
       <Text style={styles.riLabel}>{label}</Text>
       <Text style={styles.riValue}>{value}</Text>
-    </View>
-  );
-}
-
-function Toggle({ T, label, sub, value, onChange }) {
-  return (
-    <View style={styles.toggleRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.toggleLabel}>{label}</Text>
-        {sub ? <Text style={styles.toggleSub}>{sub}</Text> : null}
-      </View>
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => onChange(!value)}
-        style={[styles.toggleTrack, { backgroundColor: value ? T.accent : "#222" }]}
-      >
-        <View style={[styles.toggleThumb, { left: value ? 22 : 3 }]} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -401,8 +389,39 @@ function Btn({ T, label, onPress, small }) {
   );
 }
 
-// ─── ROOT APP ─────────────────────────────────────────────────────────────────
-export default function App() {
+// ─── ERROR BOUNDARY (يمنع كراش الشاشة الكاملة عند أي خطأ غير متوقع) ─────────
+class ErrorBoundary extends require("react").Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.log("Musalli crash caught:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.crashWrap}>
+          <Text style={styles.crashEmoji}>⚠️</Text>
+          <Text style={styles.crashTitle}>حدث خطأ غير متوقع</Text>
+          <Text style={styles.crashSub}>نعتذر عن الإزعاج، الرجاء إعادة تشغيل التطبيق</Text>
+          <TouchableOpacity
+            style={styles.crashBtn}
+            onPress={() => this.setState({ hasError: false })}
+          >
+            <Text style={styles.crashBtnText}>إعادة المحاولة</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppInner() {
   const [screen, setScreen]           = useState("splash");
   const [activeTab, setActiveTab]     = useState("home");
   const [fontSize, setFontSize]       = useState(26);
@@ -431,22 +450,20 @@ export default function App() {
 
   const [countdown, setCountdown] = useState({ label: "العصر", mins: 97 });
 
-  // GPS / Prayer / Qibla
   const [userLocation, setUserLocation]       = useState(null);
   const [locationError, setLocationError]     = useState(null);
   const [livePrayerTimes, setLivePrayerTimes] = useState(null);
   const [prayerLoading, setPrayerLoading]     = useState(false);
   const [qiblaAngle, setQiblaAngle]           = useState(143);
-  const [liveCompassAngle, setLiveCompassAngle] = useState(0);
+  const [realCompassDegree, setRealCompassDegree] = useState(0);
+  const smoothedAngleRef = useRef(0);
 
-  // Audio refs
   const soundRef    = useRef(null);
   const azanRef     = useRef(null);
   const [audioLoadingAyah, setAudioLoadingAyah] = useState(false);
-  const [azanTriggered, setAzanTriggered]       = useState({});
+  const azanTriggeredRef = useRef({});
   const salahReminderTimer = useRef(null);
 
-  // Settings
   const [azanOn, setAzanOn]         = useState(true);
   const [salahOn, setSalahOn]       = useState(true);
   const [salahInt, setSalahInt]     = useState(30);
@@ -457,35 +474,26 @@ export default function App() {
   const [fastMT, setFastMT]         = useState(true);
   const [fastWD, setFastWD]         = useState(false);
 
-  // Theme / monetisation
   const [activeThemeId, setActiveThemeId] = useState("spiritual_green");
   const [unlockedIds, setUnlockedIds]     = useState(["royal_black", "spiritual_green"]);
-  const [purchaseModal, setPurchaseModal] = useState(null);
-  const [promoInputs, setPromoInputs]     = useState({});
+  const [purchaseInProgress, setPurchaseInProgress] = useState(false);
   const [masterPromo, setMasterPromo]     = useState("");
   const [masterMsg, setMasterMsg]         = useState("");
   const [adFree, setAdFree]               = useState(false);
   const [premiumMode, setPremiumMode]     = useState(false);
 
-  // FIX #2: vipPurchased & purchasedIds track GENUINE financial transactions only
   const [vipPurchased, setVipPurchased]   = useState(false);
   const [purchasedIds, setPurchasedIds]   = useState([]);
 
-  // supportDone = true hides the donation button permanently.
-  // Flips true ONLY via genuine purchase. Promo codes must NOT flip this.
-const [supportDone, setSupportDone]     = useState(false);
+  const [supportDone, setSupportDone]     = useState(false);
   const [supportCodeUsed, setSupportCodeUsed] = useState(false);
-  // About modal
-  const [aboutModal, setAboutModal] = useState(false);
 
-  // Statistics
   const [totalTasbeeh, setTotalTasbeeh]     = useState(0);
   const [totalReadSecs, setTotalReadSecs]   = useState(0);
   const [totalAyahsRead, setTotalAyahsRead] = useState(0);
   const readingTimerRef = useRef(null);
   const streakRef       = useRef(0);
 
-  // Pop-up Reminder System
   const [reminderModal, setReminderModal]               = useState(false);
   const [reminderContent, setReminderContent]           = useState(null);
   const [reminderIntervalMins, setReminderIntervalMins] = useState(30);
@@ -503,7 +511,19 @@ const [supportDone, setSupportDone]     = useState(false);
   const greg   = getGregorianDate();
   const fastAlert = getSpecialFastingAlert(hijri);
 
-  // ── Load saved data ───────────────────────────────────────────────────────
+  const sendNotif = useCallback(async (title, body) => {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: title || "تنبيه الأذان",
+          body: body || "حان الآن موعد الصلاة",
+          sound: true,
+        },
+        trigger: null,
+      });
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
     let finished = false;
     (async () => {
@@ -521,6 +541,7 @@ const [supportDone, setSupportDone]     = useState(false);
         const savedRemDaily   = await loadData(STORAGE_KEYS.REMINDER_DAILY,   "07:00");
         const savedVip        = await loadData(STORAGE_KEYS.VIP_PURCHASED,    false);
         const savedPurchased  = await loadData(STORAGE_KEYS.PURCHASED_IDS,    []);
+        const savedAzanDate   = await loadData(STORAGE_KEYS.AZAN_FIRED_DATE,  {});
 
         setActiveThemeId(savedTheme);
         setUnlockedIds(savedUnlocked);
@@ -535,6 +556,13 @@ const [supportDone, setSupportDone]     = useState(false);
         setDailyReminderTime(savedRemDaily);
         setVipPurchased(savedVip);
         setPurchasedIds(savedPurchased);
+
+        const tKey = todayKey();
+        const filtered = {};
+        Object.keys(savedAzanDate || {}).forEach((timeStr) => {
+          if (savedAzanDate[timeStr] === tKey) filtered[timeStr] = tKey;
+        });
+        azanTriggeredRef.current = filtered;
 
         const today     = new Date().toDateString();
         const lastOpen  = await loadData(STORAGE_KEYS.LAST_OPEN,   "");
@@ -556,7 +584,6 @@ const [supportDone, setSupportDone]     = useState(false);
     return () => clearTimeout(safety);
   }, []);
 
-  // ── Persist stats ─────────────────────────────────────────────────────────
   useEffect(() => { saveData(STORAGE_KEYS.TASBEEH_COUNT, tasbeehCount); }, [tasbeehCount]);
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_TASBEEH, totalTasbeeh); }, [totalTasbeeh]);
   useEffect(() => { saveData(STORAGE_KEYS.TOTAL_READ_SECS, totalReadSecs); }, [totalReadSecs]);
@@ -564,8 +591,13 @@ const [supportDone, setSupportDone]     = useState(false);
   useEffect(() => { saveData(STORAGE_KEYS.REMINDER_ENABLED, reminderEnabled); }, [reminderEnabled]);
   useEffect(() => { saveData(STORAGE_KEYS.REMINDER_INT, reminderIntervalMins); }, [reminderIntervalMins]);
   useEffect(() => { saveData(STORAGE_KEYS.REMINDER_DAILY, dailyReminderTime); }, [dailyReminderTime]);
+  useEffect(() => { saveData(STORAGE_KEYS.AD_FREE, adFree); }, [adFree]);
+  useEffect(() => { saveData(STORAGE_KEYS.ACTIVE_THEME, activeThemeId); }, [activeThemeId]);
+  useEffect(() => { saveData(STORAGE_KEYS.UNLOCKED_IDS, unlockedIds); }, [unlockedIds]);
+  useEffect(() => { saveData(STORAGE_KEYS.SUPPORT_DONE, supportDone); }, [supportDone]);
+  useEffect(() => { saveData(STORAGE_KEYS.VIP_PURCHASED, vipPurchased); }, [vipPurchased]);
+  useEffect(() => { saveData(STORAGE_KEYS.PURCHASED_IDS, purchasedIds); }, [purchasedIds]);
 
-  // ── Reading timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (activeTab === "quran" && audioPlaying) {
       readingTimerRef.current = setInterval(() => {
@@ -577,13 +609,11 @@ const [supportDone, setSupportDone]     = useState(false);
     return () => { if (readingTimerRef.current) clearInterval(readingTimerRef.current); };
   }, [activeTab, audioPlaying]);
 
-  // ── Splash → ad ───────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => setScreen("ad"), 1800);
     return () => clearTimeout(t);
   }, []);
 
-  // ── Audio session ─────────────────────────────────────────────────────────
   useEffect(() => {
     Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
@@ -594,14 +624,13 @@ const [supportDone, setSupportDone]     = useState(false);
     }).catch(() => {});
   }, []);
 
-  // ── GPS & Prayer times ────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") {
-          setLocationError("لم يتم منح إذن الموقع");
-          fetchPrayerTimes(30.0444, 31.2357);
+          setLocationError("لم يتم منح إذن الموقع — تُعرض مواقيت تقريبية لمكة المكرمة حتى تمنح الإذن");
+          fetchPrayerTimes(21.3891, 39.8579);
           return;
         }
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced, timeout: 10000 });
@@ -610,8 +639,8 @@ const [supportDone, setSupportDone]     = useState(false);
         setQiblaAngle(calcQiblaAngle(latitude, longitude));
         fetchPrayerTimes(latitude, longitude);
       } catch (_) {
-        setLocationError("تعذّر تحديد الموقع");
-        fetchPrayerTimes(30.0444, 31.2357);
+        setLocationError("تعذّر تحديد الموقع — تُعرض مواقيت تقريبية لمكة المكرمة حتى تُحل المشكلة");
+        fetchPrayerTimes(21.3891, 39.8579);
       }
     })();
   }, []);
@@ -649,7 +678,34 @@ const [supportDone, setSupportDone]     = useState(false);
     }
   }, []);
 
-  // ── Countdown ─────────────────────────────────────────────────────────────
+  const tomorrowTimesRef = useRef(null);
+  const fetchTomorrowPrayerTimes = useCallback(async (lat, lng) => {
+    try {
+      const tmr  = new Date(Date.now() + 86400000);
+      const dd   = String(tmr.getDate()).padStart(2, "0");
+      const mm   = String(tmr.getMonth() + 1).padStart(2, "0");
+      const yyyy = tmr.getFullYear();
+      const url  = `https://api.aladhan.com/v1/timings/${dd}-${mm}-${yyyy}?latitude=${lat}&longitude=${lng}&method=5`;
+      const res  = await fetch(url);
+      const json = await res.json();
+      if (json.code === 200 && json.data?.timings) {
+        tomorrowTimesRef.current = json.data.timings.Fajr || null;
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    if (userLocation) {
+      fetchTomorrowPrayerTimes(userLocation.latitude, userLocation.longitude);
+    } else {
+      fetchTomorrowPrayerTimes(21.3891, 39.8579);
+    }
+    const t = setInterval(() => {
+      if (userLocation) fetchTomorrowPrayerTimes(userLocation.latitude, userLocation.longitude);
+    }, 6 * 60 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [userLocation, fetchTomorrowPrayerTimes]);
+
   const computeCountdown = useCallback((times) => {
     if (!times || times.length === 0) return null;
     const now     = new Date();
@@ -660,8 +716,10 @@ const [supportDone, setSupportDone]     = useState(false);
       if (pm > nowMins) { next = { label: p.name, mins: pm - nowMins }; break; }
     }
     if (!next) {
-      const pm = parseTimeMins(times[0].time);
-      next = { label: times[0].name, mins: 1440 - nowMins + pm };
+      const fajrTomorrow = tomorrowTimesRef.current
+        ? parseTimeMins(tomorrowTimesRef.current)
+        : parseTimeMins(times[0].time);
+      next = { label: times[0].name, mins: 1440 - nowMins + fajrTomorrow };
     }
     return { label: next.label, mins: Math.max(0, Math.floor(next.mins)) };
   }, []);
@@ -678,16 +736,23 @@ const [supportDone, setSupportDone]     = useState(false);
     return () => clearInterval(t);
   }, [livePrayerTimes, computeCountdown]);
 
-  // ── Compass simulation ────────────────────────────────────────────────────
   useEffect(() => {
-    const t = setInterval(() => setLiveCompassAngle((p) => (p + 1.5) % 360), 80);
-    return () => clearInterval(t);
+    const subscription = Magnetometer.addListener((data) => {
+      let angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
+      if (angle < 0) angle += 360;
+      const smoothed = smoothAngle(smoothedAngleRef.current, angle, 0.15);
+      smoothedAngleRef.current = smoothed;
+      setRealCompassDegree(Math.round(smoothed));
+    });
+    Magnetometer.setUpdateInterval(120);
+    return () => {
+      subscription && subscription.remove();
+    };
   }, []);
 
-  const effectiveCompass = liveCompassAngle;
-  const isAligned        = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
+  const effectiveCompass = realCompassDegree;
+  const isAligned = Math.abs((effectiveCompass - qiblaAngle + 360) % 360) < 15;
 
-  // ── Quran audio playback ──────────────────────────────────────────────────
   useEffect(() => {
     if (!audioPlaying) {
       if (soundRef.current) soundRef.current.stopAsync().catch(() => {});
@@ -724,26 +789,10 @@ const [supportDone, setSupportDone]     = useState(false);
       cancelled = true;
       if (soundRef.current) soundRef.current.stopAsync().catch(() => {});
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioPlaying]);
 
-  // ── Azan auto-trigger ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!azanOn || !livePrayerTimes) return;
-    const interval = setInterval(() => {
-      const now    = new Date();
-      const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      livePrayerTimes.forEach((p) => {
-        const timeStr = p.time ? p.time.substring(0, 5) : "";
-        if (timeStr === nowStr && !azanTriggered[timeStr]) {
-          setAzanTriggered((prev) => ({ ...prev, [timeStr]: true }));
-          playAzan(p.name);
-        }
-      });
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [azanOn, livePrayerTimes, azanTriggered]);
-
-  const playAzan = async (prayerName) => {
+  const playAzan = useCallback(async (prayerName) => {
     try {
       if (azanRef.current) await azanRef.current.unloadAsync();
       const { sound } = await Audio.Sound.createAsync(
@@ -755,9 +804,90 @@ const [supportDone, setSupportDone]     = useState(false);
     } catch (_) {
       sendNotif(`🕌 حان وقت أذان ${prayerName}`);
     }
-  };
+  }, [sendNotif]);
 
-  // ── Salah reminder interval ───────────────────────────────────────────────
+  // يشغّل صوت الأذان فعليًا فقط إذا كان التطبيق مفتوحًا الآن (لأن تشغيل صوت طويل
+  // بالخلفية يحتاج إعداد background audio منفصل خارج نطاق هذا التعديل).
+  useEffect(() => {
+    if (!azanOn || !livePrayerTimes) return;
+
+    const checkPrayer = () => {
+      const now = new Date();
+      const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      const tKey = todayKey();
+
+      Object.keys(azanTriggeredRef.current).forEach((timeStr) => {
+        if (azanTriggeredRef.current[timeStr] !== tKey) {
+          delete azanTriggeredRef.current[timeStr];
+        }
+      });
+
+      livePrayerTimes.forEach((p) => {
+        const timeStr = p.time ? p.time.substring(0, 5) : "";
+        if (timeStr === nowStr && azanTriggeredRef.current[timeStr] !== tKey) {
+          azanTriggeredRef.current[timeStr] = tKey;
+          saveData(STORAGE_KEYS.AZAN_FIRED_DATE, azanTriggeredRef.current);
+          playAzan(p.name);
+        }
+      });
+    };
+
+    checkPrayer();
+    const now = new Date();
+    const delay = (60 - now.getSeconds()) * 1000;
+
+    let timerId;
+    const timeoutId = setTimeout(() => {
+      checkPrayer();
+      timerId = setInterval(checkPrayer, 60000);
+    }, delay);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (timerId) clearInterval(timerId);
+    };
+  }, [azanOn, livePrayerTimes, playAzan]);
+
+  // ─── إشعارات أذان حقيقية مجدولة (تعمل حتى لو التطبيق مغلق/بالخلفية) ───────
+  // يلغي كل الإشعارات المجدولة سابقًا لأذان الصلاة، ثم يعيد جدولتها لكل صلاة
+  // متبقية اليوم، بحيث يصل إشعار النظام في وقته الفعلي بدون الحاجة لفتح التطبيق.
+  useEffect(() => {
+    if (!azanOn || !livePrayerTimes) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+        const azanIds = scheduled
+          .filter((n) => n.content?.data?.type === "azan")
+          .map((n) => n.identifier);
+        await Promise.all(azanIds.map((id) => Notifications.cancelScheduledNotificationAsync(id)));
+        if (cancelled) return;
+
+        const now = new Date();
+        for (const p of livePrayerTimes) {
+          if (!p.time) continue;
+          const mins = parseTimeMins(p.time);
+          const fireDate = new Date();
+          fireDate.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+          if (fireDate <= now) continue;
+
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: `🕌 أذان ${p.name}`,
+              body: "حان الآن موعد الصلاة",
+              sound: true,
+              data: { type: "azan", prayer: p.name },
+            },
+            trigger: fireDate,
+          });
+        }
+      } catch (_) {}
+    })();
+
+    return () => { cancelled = true; };
+  }, [azanOn, livePrayerTimes]);
+
   useEffect(() => {
     if (salahReminderTimer.current) clearInterval(salahReminderTimer.current);
     if (!salahOn) return;
@@ -766,9 +896,8 @@ const [supportDone, setSupportDone]     = useState(false);
       sendNotif("اللهم صلِّ وسلِّمْ على نبيِّنا محمد ﷺ");
     }, intervalMs);
     return () => { if (salahReminderTimer.current) clearInterval(salahReminderTimer.current); };
-  }, [salahOn, salahInt]);
+  }, [salahOn, salahInt, sendNotif]);
 
-  // ── Pop-up reminder system ────────────────────────────────────────────────
   const triggerReminder = useCallback(() => {
     const item = REMINDER_POOL[reminderPoolIdx.current % REMINDER_POOL.length];
     reminderPoolIdx.current += 1;
@@ -798,14 +927,12 @@ const [supportDone, setSupportDone]     = useState(false);
     return () => { if (dailyTimerRef.current) clearInterval(dailyTimerRef.current); };
   }, [reminderEnabled, dailyReminderTime, triggerReminder]);
 
-  // ── Dhikr banner rotation ─────────────────────────────────────────────────
   useEffect(() => {
     if (fastAlert) return;
     const t = setInterval(() => setDhikrIdx((p) => (p + 1) % DHIKR_PHRASES.length), 4000);
     return () => clearInterval(t);
   }, [fastAlert]);
 
-  // ── Cleanup audio on unmount ──────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (soundRef.current) soundRef.current.unloadAsync().catch(() => {});
@@ -813,7 +940,6 @@ const [supportDone, setSupportDone]     = useState(false);
     };
   }, []);
 
-  // ── AppState: save on background ──────────────────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener("change", async (state) => {
       if (state === "background" || state === "inactive") {
@@ -831,13 +957,13 @@ const [supportDone, setSupportDone]     = useState(false);
           await saveData(STORAGE_KEYS.REMINDER_DAILY,   dailyReminderTime);
           await saveData(STORAGE_KEYS.VIP_PURCHASED,    vipPurchased);
           await saveData(STORAGE_KEYS.PURCHASED_IDS,    purchasedIds);
+          await saveData(STORAGE_KEYS.AZAN_FIRED_DATE,  azanTriggeredRef.current);
         } catch (_) {}
       }
     });
     return () => sub.remove();
   }, [tasbeehCount, adFree, activeThemeId, unlockedIds, supportDone, totalTasbeeh, totalReadSecs, totalAyahsRead, reminderEnabled, reminderIntervalMins, dailyReminderTime, vipPurchased, purchasedIds]);
 
-  // ── Android back button ───────────────────────────────────────────────────
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (activeTab !== "home") { setActiveTab("home"); return true; }
@@ -845,11 +971,6 @@ const [supportDone, setSupportDone]     = useState(false);
     });
     return () => sub.remove();
   }, [activeTab]);
-
-  const sendNotif = (msg) => {
-    setNotifMsg(msg);
-    setTimeout(() => setNotifMsg(""), 3500);
-  };
 
   const handleTasbeeh = useCallback(() => {
     setTasbeehCount((prev) => {
@@ -881,61 +1002,52 @@ const [supportDone, setSupportDone]     = useState(false);
   const selectTheme = (id) => {
     if (unlockedIds.includes(id)) {
       setActiveThemeId(id);
-      saveData(STORAGE_KEYS.ACTIVE_THEME, id);
       sendNotif("✅ تم تطبيق " + getTheme(id).name);
     }
   };
-  const openPurchase = (id) => setPurchaseModal(id);
 
-  // FIX #2: Genuine purchase — sets purchasedIds + vipPurchased + supportDone
-  const confirmPurchase = (id) => {
-    const th     = getTheme(id);
-    const newIds = [...new Set([...unlockedIds, id])];
-    const newPurchased = [...new Set([...purchasedIds, id])];
-    setUnlockedIds(newIds);
-    setPurchasedIds(newPurchased);
-    setActiveThemeId(id);
-    saveData(STORAGE_KEYS.UNLOCKED_IDS, newIds);
-    saveData(STORAGE_KEYS.PURCHASED_IDS, newPurchased);
-    saveData(STORAGE_KEYS.ACTIVE_THEME, id);
-    setPurchaseModal(null);
-    if (id === "vip_royal") {
-      setVipPurchased(true);
-      setAdFree(true);
-      setSupportDone(true);
-      saveData(STORAGE_KEYS.VIP_PURCHASED, true);
-      saveData(STORAGE_KEYS.AD_FREE, true);
-      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
-    } else {
-      // Any genuine purchase hides donation
-      setSupportDone(true);
-      saveData(STORAGE_KEYS.SUPPORT_DONE, true);
+  const confirmPurchase = async (id) => {
+    if (purchaseInProgress) return false;
+    setPurchaseInProgress(true);
+    try {
+      const result = await purchaseService.buy(id);
+      if (!result.success) {
+        sendNotif("❌ تعذّر إتمام الشراء، حاول مرة أخرى");
+        return false;
+      }
+      const th     = getTheme(id);
+      const newIds = [...new Set([...unlockedIds, id])];
+      const newPurchased = [...new Set([...purchasedIds, id])];
+      setUnlockedIds(newIds);
+      setPurchasedIds(newPurchased);
+      setActiveThemeId(id);
+      if (id === "vip_royal") {
+        setVipPurchased(true);
+        setAdFree(true);
+        setSupportDone(true);
+      } else {
+        setSupportDone(true);
+      }
+      sendNotif((result.demo ? "✅ (تجربة) تم فتح " : "✅ تم فتح ") + th.name + "!");
+      return true;
+    } finally {
+      setPurchaseInProgress(false);
     }
-    sendNotif("✅ تم فتح " + th.name + "!");
   };
 
-  // FIX #2: Promo codes unlock theme ONLY — do NOT hide donation or set supportDone
-  const submitThemePromo = (id) => {
-    const code  = (promoInputs[id]?.code || "").trim().toLowerCase();
+  const submitThemePromo = (id, code) => {
+    const normalized = (code || "").trim().toLowerCase();
     const valid = { royal_gold: "gold2025", sufi_purple: "purple2025", vip_royal: "vip2025" };
-    if (code === valid[id]) {
+    if (normalized === valid[id]) {
       const newIds = [...new Set([...unlockedIds, id])];
       setUnlockedIds(newIds);
       setActiveThemeId(id);
-      saveData(STORAGE_KEYS.UNLOCKED_IDS, newIds);
-      saveData(STORAGE_KEYS.ACTIVE_THEME, id);
-      // NOTE: supportDone NOT set here — no genuine payment made
-      setPurchaseModal(null);
       sendNotif("🎁 " + getTheme(id).name + " مفتوح!");
-    } else {
-      setPromoInputs((p) => ({ ...p, [id]: { ...p[id], msg: "❌ الكود غير صحيح" } }));
+      return true;
     }
+    return false;
   };
-  const setPromoCode = (id, val) =>
-    setPromoInputs((p) => ({ ...p, [id]: { ...p[id], code: val, msg: "" } }));
 
-  // FIX #2: Master promo — removes ads ONLY. Does NOT set supportDone.
-  // Theme store, VIP, and donation remain hidden until genuine purchase.
   const handleMasterPromo = async () => {
     const code = masterPromo.trim();
     if (!code) { setMasterMsg("❌ الكود غير صحيح"); return; }
@@ -947,367 +1059,300 @@ const [supportDone, setSupportDone]     = useState(false);
         setPremiumMode(true);
         setUnlockedIds(allIds);
         setActiveThemeId("vip_royal");
-        // Master hash = developer override, treat as genuine
         setVipPurchased(true);
         setSupportDone(true);
-        saveData(STORAGE_KEYS.AD_FREE, true);
-        saveData(STORAGE_KEYS.UNLOCKED_IDS, allIds);
-        saveData(STORAGE_KEYS.ACTIVE_THEME, "vip_royal");
-        saveData(STORAGE_KEYS.VIP_PURCHASED, true);
-        saveData(STORAGE_KEYS.SUPPORT_DONE, true);
-        setMasterMsg("❤️ تم تفعيل كل المميزات الفاخرة بالكامل!");
+        setSupportCodeUsed(true);
+        setMasterMsg("❤️ حبيني وادعيلي");
         return;
       }
     } catch (_) {}
-
-// كود الأصدقاء/الدعم — يزيل الإعلانات + يخفي زر التبرع وباقة VIP فقط
-    // لا يُفعّل أي حالة شراء حقيقي (vipPurchased و purchasedIds يبقيان كما هما)
-    const codeLower = code.toLowerCase();
-    const friendCodes = ["friend2025", "ادعيلي", "حبيني"];
-    if (friendCodes.includes(code) || friendCodes.includes(codeLower)) {
-      setAdFree(true);
-      setSupportCodeUsed(true);
-      saveData(STORAGE_KEYS.AD_FREE, true);
-      setMasterMsg("❤️ حبيني وادعيلي — تم إزالة الإعلانات!");
-    } else {
-      setMasterMsg("❌ الكود غير صحيح");
-    }
+    setMasterMsg("❌ الكود غير صحيح");
   };
- const displayedPrayerTimes = livePrayerTimes || [
+
+  const displayedPrayerTimes = livePrayerTimes || [
     { name: "الفجر",  time: "04:45" }, { name: "الشروق", time: "06:15" },
     { name: "الظهر",  time: "12:30" }, { name: "العصر",  time: "15:45" },
     { name: "المغرب", time: "18:30" }, { name: "العشاء", time: "20:00" },
   ];
 
-  // ── SPLASH ────────────────────────────────────────────────────────────────
   if (screen === "splash") {
     return (
-      <View style={styles.splashWrap}>
-        <View style={styles.splashGlow} />
-        <Text style={styles.splashEmoji}>☪️</Text>
-        <Text style={styles.splashTitle}>مُصلِّي</Text>
-        <Text style={styles.splashSub}>مساعدك القرآني الذكي</Text>
-        <View style={styles.splashBarTrack}>
-          <View style={styles.splashBarFill} />
+      <SafeAreaProvider>
+        <View style={styles.splashWrap}>
+          <View style={styles.splashGlow} />
+          <Text style={styles.splashEmoji}>☪️</Text>
+          <Text style={styles.splashTitle}>مُصلِّي</Text>
+          <Text style={styles.splashSub}>مساعدك القرآني الذكي</Text>
+          <View style={styles.splashBarTrack}>
+            <View style={styles.splashBarFill} />
+          </View>
         </View>
-      </View>
+      </SafeAreaProvider>
     );
   }
 
-  // ── AD ────────────────────────────────────────────────────────────────────
   if (screen === "ad") {
     return (
-      <View style={styles.adWrap}>
-        <View style={styles.adBadge}>
-          <Text style={styles.adBadgeText}>إعلان مفتوح</Text>
+      <SafeAreaProvider>
+        <View style={styles.adWrap}>
+          <View style={styles.adBadge}>
+            <Text style={styles.adBadgeText}>إعلان مفتوح</Text>
+          </View>
+          <Text style={styles.adEmoji}>📖</Text>
+          <Text style={styles.adTitle}>تعلّم القرآن الكريم</Text>
+          <Text style={styles.adSub}>أفضل تطبيق للحفظ والتلاوة والأذكار</Text>
+          <TouchableOpacity style={styles.adSkip} onPress={() => setScreen("home")}>
+            <Text style={styles.adSkipText}>تخطي ✕</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.adEmoji}>📖</Text>
-        <Text style={styles.adTitle}>تعلّم القرآن الكريم</Text>
-        <Text style={styles.adSub}>أفضل تطبيق للحفظ والتلاوة والأذكار</Text>
-        <TouchableOpacity style={styles.adSkip} onPress={() => setScreen("home")}>
-          <Text style={styles.adSkipText}>تخطي ✕</Text>
-        </TouchableOpacity>
-      </View>
+      </SafeAreaProvider>
     );
   }
 
   const NAV_TABS = [
-    { id: "home",     icon: "🏠", label: "الرئيسية"  },
-    { id: "quran",    icon: "📖", label: "القرآن"    },
-    { id: "tasbeeh",  icon: "📿", label: "التسبيح"   },
-    { id: "qibla",    icon: "🧭", label: "القبلة"    },
-    { id: "azkar",    icon: "🤲", label: "الأذكار"   },
-    { id: "stats",    icon: "📊", label: "الإحصاء"   },
-    { id: "settings", icon: "⚙️", label: "الإعدادات" },
+    { id: "home",     icon: "home",     label: "الرئيسية"  },
+    { id: "quran",    icon: "quran",    label: "القرآن"    },
+    { id: "tasbeeh",  icon: "tasbeeh",  label: "التسبيح"   },
+    { id: "qibla",    icon: "qibla",    label: "القبلة"    },
+    { id: "azkar",    icon: "azkar",    label: "الأذكار"   },
+    { id: "stats",    icon: "stats",    label: "الإحصاء"   },
+    { id: "settings", icon: "settings", label: "الإعدادات" },
   ];
 
   return (
-    <View style={[styles.appRoot, { backgroundColor: T.bg }]}>
-      {premiumMode && activeTab === "settings" && (
-        <View style={styles.premiumWrap} pointerEvents="none">
-          <View style={styles.premiumBadge}>
-            <Text style={styles.premiumStar}>⭐</Text>
-            <Text style={styles.premiumText}>عضوية مميّزة مفعّلة</Text>
-            <Text style={styles.premiumStar}>⭐</Text>
+    <SafeAreaProvider>
+      <View style={[styles.appRoot, { backgroundColor: T.bg }]}>
+
+        {notifMsg ? (
+          <View style={[styles.toast, { borderColor: T.accentBorder }]}>
+            <Text style={styles.toastText}>{notifMsg}</Text>
           </View>
-        </View>
-      )}
+        ) : null}
 
-      {notifMsg ? (
-        <View style={[styles.toast, { borderColor: T.accentBorder }]}>
-          <Text style={styles.toastText}>{notifMsg}</Text>
-        </View>
-      ) : null}
-
-      {/* Pop-up Reminder Modal */}
-      <Modal visible={reminderModal} transparent animationType="fade" onRequestClose={() => setReminderModal(false)}>
-        <View style={styles.reminderOverlay}>
-          <View style={[styles.reminderSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
-            <View style={[styles.reminderBadge, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}>
-              <Text style={[styles.reminderBadgeText, { color: T.accent }]}>{reminderContent?.type || "تذكير"}</Text>
-            </View>
-            <Text style={styles.reminderText}>{reminderContent?.text}</Text>
-            <TouchableOpacity
-              style={[styles.reminderCloseBtn, { backgroundColor: T.accent }]}
-              onPress={() => setReminderModal(false)}
-            >
-              <Text style={styles.reminderCloseBtnText}>حفظ الله ورعاك ✦</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* About App Modal */}
-      <Modal visible={aboutModal} transparent animationType="slide" onRequestClose={() => setAboutModal(false)}>
-        <TouchableOpacity style={styles.purchaseOverlay} activeOpacity={1} onPress={() => setAboutModal(false)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.purchaseSheet, { borderColor: T.accentBorder }]} onPress={() => {}}>
-            <ScrollView>
-              <View style={styles.purchaseHandle} />
-              <Text style={[styles.aboutTitle, { color: T.accent }]}>ℹ️ عن تطبيق مُصلِّي</Text>
-              <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
-              <RI label="اسم التطبيق"         value="مُصلِّي" />
-              <RI label="الإصدار"              value="3.0.0" />
-              <RI label="المنصة"               value="Expo 51 — React Native" />
-              <RI label="البيانات القرآنية"     value="محققة ومعتمدة 100%" />
-              <RI label="مصدر مواقيت الصلاة"    value="Aladhan API" />
-              <RI label="الترخيص"              value="للاستخدام الشخصي فقط" />
-              <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
-              <Text style={styles.aboutSection}>🌟 مميزات التطبيق</Text>
-              {[
-                "قراءة سورة الفاتحة مع التجويد التفاعلي",
-                "عداد التسبيح الإلكتروني مع الفقاعة العائمة",
-                "اتجاه القبلة بالبوصلة الحية",
-                "أذكار الصباح والمساء والنوم والسفر",
-                "مواقيت الصلاة الحية بالموقع الجغرافي",
-                "إحصاءات القراءة والعبادة اليومية",
-                "نظام تذكيرات دورية ويومية بالأحاديث والسنن وآية الكرسي",
-                "متجر ثيمات فاخرة متعددة",
-              ].map((f, i) => (
-                <Text key={i} style={styles.aboutFeature}>• {f}</Text>
-              ))}
-              <View style={[styles.aboutDivider, { backgroundColor: T.cardBorder }]} />
-              <Text style={styles.aboutDisclaimer}>
-                هذا التطبيق أداة مساعدة دينية. يُرجى الرجوع لأهل العلم المتخصصين في الشؤون الفقهية.
-              </Text>
-              <TouchableOpacity
-                style={[styles.longModalClose, { backgroundColor: T.accent, marginTop: 16 }]}
-                onPress={() => setAboutModal(false)}
-              >
-                <Text style={styles.longModalCloseText}>إغلاق</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      <PurchaseModal
-        T={T}
-        purchaseModal={purchaseModal}
-        setPurchaseModal={setPurchaseModal}
-        promoInputs={promoInputs}
-        setPromoCode={setPromoCode}
-        submitThemePromo={submitThemePromo}
-        confirmPurchase={confirmPurchase}
-      />
-
-{floatW && (
-        <DraggableTasbeehBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} onClose={() => setFloatW(false)} />
-      )}
-
-      {wordPopup ? (
-
-        <View style={[styles.wordPopup, { borderColor: T.accentBorder }]}>
-          <Text style={styles.wordPopupText}>{wordPopup}</Text>
-          {soundWave && (
-            <View style={styles.soundWaveRow}>
-              {[...Array(14)].map((_, i) => (
-                <View key={i} style={[styles.soundWaveBar, { backgroundColor: T.accent, height: 8 + Math.abs(Math.sin(i)) * 24 }]} />
-              ))}
-            </View>
-          )}
-          <Text style={styles.wordPopupSub}>🔊 جارٍ تشغيل الصوت...</Text>
-        </View>
-      ) : null}
-
-      {/* Long-press word modal */}
-      <Modal visible={!!longModal} transparent animationType="fade" onRequestClose={() => setLongModal(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setLongModal(null)}>
-          <TouchableOpacity activeOpacity={1} style={[styles.longModalBox, { borderColor: T.cardBorder }]} onPress={() => {}}>
-            <ScrollView>
-              <Text style={styles.longModalWord}>{longModal}</Text>
-              <View style={styles.longModalDivider} />
-              {longModal && WORD_MEANINGS[longModal] ? (
-                <>
-                  <RI label="المعنى"  value={WORD_MEANINGS[longModal].m} />
-                  <RI label="الجذر"   value={WORD_MEANINGS[longModal].r} />
-                  <RI label="الإعراب" value={WORD_MEANINGS[longModal].g} />
-                </>
-              ) : (
-                <Text style={styles.longModalNoData}>لا يوجد تفسير مسجّل لهذه الكلمة</Text>
-              )}
-              <View style={styles.longModalDivider} />
-              <Text style={styles.longModalFontLabel}>حجم الخط</Text>
-              <View style={styles.longModalFontRow}>
-                <Btn T={T} label="أ−" onPress={() => setFontSize((p) => Math.max(18, p - 2))} />
-                <Text style={[styles.longModalFontVal, { color: T.accent }]}>{fontSize}px</Text>
-                <Btn T={T} label="أ+" onPress={() => setFontSize((p) => Math.min(44, p + 2))} />
+        <Modal visible={reminderModal} transparent animationType="fade" onRequestClose={() => setReminderModal(false)}>
+          <View style={styles.reminderOverlay}>
+            <View style={[styles.reminderSheet, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
+              <View style={[styles.reminderBadge, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}>
+                <Text style={[styles.reminderBadgeText, { color: T.accent }]}>{reminderContent?.type || "تذكير"}</Text>
               </View>
-              <Text style={styles.longModalHint}>🔊 النطق: مدّ حرف المد، وأظهر التشديد، والتقط النفَس عند الوقف.</Text>
+              <Text style={styles.reminderText}>{reminderContent?.text}</Text>
               <TouchableOpacity
-                style={[styles.longModalClose, { backgroundColor: T.accent }]}
-                onPress={() => setLongModal(null)}
+                style={[styles.reminderCloseBtn, { backgroundColor: T.accent }]}
+                onPress={() => setReminderModal(false)}
               >
-                <Text style={styles.longModalCloseText}>إغلاق</Text>
+                <Text style={styles.reminderCloseBtnText}>حفظ الله ورعاك ✦</Text>
               </TouchableOpacity>
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+            </View>
+          </View>
+        </Modal>
 
-      {/* Main screens */}
-      <View style={styles.screensWrap}>
-        {activeTab === "home" && (
-          <HomeScreen
-            T={T}
-            bookmark={bookmark}
-            sendNotif={sendNotif}
-            setActiveTab={setActiveTab}
-            dhikrIdx={dhikrIdx}
-            fastAlert={fastAlert}
-            hijri={hijri}
-            greg={greg}
-            countdown={countdown}
-            prayerTimes={displayedPrayerTimes}
-            prayerLoading={prayerLoading}
-          />
+        {floatW && (
+          <DraggableTasbeehBubble T={T} count={tasbeehCount} onTap={handleTasbeeh} onClose={() => setFloatW(false)} />
         )}
-        {activeTab === "quran" && (
-          <QuranScreen
-            T={T}
-            fontSize={fontSize}
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-            currentAyah={currentAyah}
-            setCurrentAyah={setCurrentAyah}
-            audioPlaying={audioPlaying}
-            setAudioPlaying={setAudioPlaying}
-            bookmark={bookmark}
-            setBookmark={setBookmark}
-            onWordPress={handleWordPress}
-            onWordLong={handleWordLong}
-            audioLoadingAyah={audioLoadingAyah}
-          />
-        )}
-        {activeTab === "tasbeeh" && (
-          <TasbeehScreen
-            T={T}
-            count={tasbeehCount}
-            onTap={handleTasbeeh}
-            onReset={() => { setTasbeehCount(0); saveData(STORAGE_KEYS.TASBEEH_COUNT, 0); }}
-            shake={tShake}
-            flash={tFlash}
-            floatW={floatW}
-            setFloatW={setFloatW}
-            notifW={notifW}
-            setNotifW={setNotifW}
-            sendNotif={sendNotif}
-          />
-        )}
-        {activeTab === "qibla" && (
-          <QiblaScreen
-            T={T}
-            compassAngle={effectiveCompass}
-            isAligned={isAligned}
-            qiblaAngle={qiblaAngle}
-            userLocation={userLocation}
-          />
-        )}
-        {activeTab === "azkar" && (
-          <AzkarScreen
-            T={T}
-            azkarTab={azkarTab}
-            setAzkarTab={setAzkarTab}
-            morningC={morningC} setMorningC={setMorningC}
-            eveningC={eveningC} setEveningC={setEveningC}
-            sleepC={sleepC}     setSleepC={setSleepC}
-            travelC={travelC}   setTravelC={setTravelC}
-            homeC={homeC}       setHomeC={setHomeC}
-            sunnahC={sunnahC}   setSunnahC={setSunnahC}
-            decrement={decrement}
-          />
-        )}
-        {activeTab === "stats" && (
-          <StatsScreen
-            T={T}
-            totalTasbeeh={totalTasbeeh}
-            totalReadSecs={totalReadSecs}
-            totalAyahsRead={totalAyahsRead}
-            streak={streakRef.current}
-          />
-        )}
-        {activeTab === "settings" && (
-          <SettingsScreen
-            T={T}
-            adFree={adFree}
-            masterPromo={masterPromo}
-            setMasterPromo={setMasterPromo}
-            masterMsg={masterMsg}
-            handleMasterPromo={handleMasterPromo}
-            azanOn={azanOn}         setAzanOn={setAzanOn}
-            salahOn={salahOn}       setSalahOn={setSalahOn}
-            salahInt={salahInt}     setSalahInt={setSalahInt}
-            preOn={preOn}           setPreOn={setPreOn}
-            autoAzkar={autoAzkar}   setAutoAzkar={setAutoAzkar}
-            travelOn={travelOn}     setTravelOn={setTravelOn}
-            fastOn={fastOn}         setFastOn={setFastOn}
-            fastMT={fastMT}         setFastMT={setFastMT}
-            fastWD={fastWD}         setFastWD={setFastWD}
-            activeThemeId={activeThemeId}
-            unlockedIds={unlockedIds}
-            onSelect={selectTheme}
-            onBuy={openPurchase}
-            vipPurchased={vipPurchased}
-            purchasedIds={purchasedIds}
-            sendNotif={sendNotif}
-            onOpenAbout={() => setAboutModal(true)}
-supportDone={supportDone}
-            supportCodeUsed={supportCodeUsed}    
-            reminderEnabled={reminderEnabled}
-            setReminderEnabled={setReminderEnabled}
-            reminderIntervalMins={reminderIntervalMins}
-            setReminderIntervalMins={setReminderIntervalMins}
-            dailyReminderTime={dailyReminderTime}
-            setDailyReminderTime={setDailyReminderTime}
-          />
-        )}
-      </View>
 
-      {!adFree && activeTab !== "quran" && (
-        <View style={styles.bottomAd}>
-          <Text style={styles.bottomAdText}>إعلان دعائي نظيف 📢</Text>
-        </View>
-      )}
+        {wordPopup ? (
+          <View style={[styles.wordPopup, { borderColor: T.accentBorder }]}>
+            <Text style={styles.wordPopupText}>{wordPopup}</Text>
+            {soundWave && (
+              <View style={styles.soundWaveRow}>
+                {[...Array(14)].map((_, i) => (
+                  <View key={i} style={[styles.soundWaveBar, { backgroundColor: T.accent, height: 8 + Math.abs(Math.sin(i)) * 24 }]} />
+                ))}
+              </View>
+            )}
+            <Text style={styles.wordPopupSub}>🔊 جارٍ تشغيل الصوت...</Text>
+          </View>
+        ) : null}
 
-      <View style={[styles.bottomNav, { borderTopColor: T.cardBorder, backgroundColor: "#070707" }]}>
-        <View style={styles.bottomNavContent}>
-          {NAV_TABS.map((t) => {
-            const isActive = activeTab === t.id;
-            return (
-              <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn} activeOpacity={0.7}>
-                <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5, borderWidth: 1, borderColor: T.accentBorder }]}>
-                  <Text style={[styles.navTabIcon, { opacity: isActive ? 1 : 0.4 }]}>{t.icon}</Text>
+        <Modal visible={!!longModal} transparent animationType="fade" onRequestClose={() => setLongModal(null)}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setLongModal(null)}>
+            <TouchableOpacity activeOpacity={1} style={[styles.longModalBox, { borderColor: T.cardBorder }]} onPress={() => {}}>
+              <ScrollView>
+                <Text style={styles.longModalWord}>{longModal}</Text>
+                <View style={styles.longModalDivider} />
+                {longModal && WORD_MEANINGS[longModal] ? (
+                  <>
+                    <RI label="المعنى"  value={WORD_MEANINGS[longModal].m} />
+                    <RI label="الجذر"   value={WORD_MEANINGS[longModal].r} />
+                    <RI label="الإعراب" value={WORD_MEANINGS[longModal].g} />
+                  </>
+                ) : (
+                  <Text style={styles.longModalNoData}>لا يوجد تفسير مسجّل لهذه الكلمة</Text>
+                )}
+                <View style={styles.longModalDivider} />
+                <Text style={styles.longModalFontLabel}>حجم الخط</Text>
+                <View style={styles.longModalFontRow}>
+                  <Btn T={T} label="أ−" onPress={() => setFontSize((p) => Math.max(18, p - 2))} />
+                  <Text style={[styles.longModalFontVal, { color: T.accent }]}>{fontSize}px</Text>
+                  <Btn T={T} label="أ+" onPress={() => setFontSize((p) => Math.min(44, p + 2))} />
                 </View>
-                <Text style={[styles.navTabLabel, { color: isActive ? T.accent : "#3a3a3a", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
+                <Text style={styles.longModalHint}>🔊 النطق: مدّ حرف المد، وأظهر التشديد، والتقط النفَس عند الوقف.</Text>
+                <TouchableOpacity
+                  style={[styles.longModalClose, { backgroundColor: T.accent }]}
+                  onPress={() => setLongModal(null)}
+                >
+                  <Text style={styles.longModalCloseText}>إغلاق</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+
+        <View style={styles.screensWrap}>
+          {activeTab === "home" && (
+            <HomeScreen
+              T={T}
+              bookmark={bookmark}
+              sendNotif={sendNotif}
+              setActiveTab={setActiveTab}
+              dhikrIdx={dhikrIdx}
+              fastAlert={fastAlert}
+              hijri={hijri}
+              greg={greg}
+              countdown={countdown}
+              prayerTimes={displayedPrayerTimes}
+              prayerLoading={prayerLoading}
+              locationError={locationError}
+            />
+          )}
+          {activeTab === "quran" && (
+            <QuranScreen
+              T={T}
+              fontSize={fontSize}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              currentAyah={currentAyah}
+              setCurrentAyah={setCurrentAyah}
+              audioPlaying={audioPlaying}
+              setAudioPlaying={setAudioPlaying}
+              bookmark={bookmark}
+              setBookmark={setBookmark}
+              onWordPress={handleWordPress}
+              onWordLong={handleWordLong}
+              audioLoadingAyah={audioLoadingAyah}
+            />
+          )}
+          {activeTab === "tasbeeh" && (
+            <TasbeehScreen
+              T={T}
+              count={tasbeehCount}
+              onTap={handleTasbeeh}
+              onReset={() => { setTasbeehCount(0); }}
+              shake={tShake}
+              flash={tFlash}
+              floatW={floatW}
+              setFloatW={setFloatW}
+              notifW={notifW}
+              setNotifW={setNotifW}
+              sendNotif={sendNotif}
+            />
+          )}
+          {activeTab === "qibla" && (
+            <QiblaScreen
+              T={T}
+              compassAngle={effectiveCompass}
+              isAligned={isAligned}
+              qiblaAngle={qiblaAngle}
+              userLocation={userLocation}
+            />
+          )}
+          {activeTab === "azkar" && (
+            <AzkarScreen
+              T={T}
+              azkarTab={azkarTab}
+              setAzkarTab={setAzkarTab}
+              morningC={morningC} setMorningC={setMorningC}
+              eveningC={eveningC} setEveningC={setEveningC}
+              sleepC={sleepC}     setSleepC={setSleepC}
+              travelC={travelC}   setTravelC={setTravelC}
+              homeC={homeC}       setHomeC={setHomeC}
+              sunnahC={sunnahC}   setSunnahC={setSunnahC}
+              decrement={decrement}
+            />
+          )}
+          {activeTab === "stats" && (
+            <StatsScreen
+              T={T}
+              totalTasbeeh={totalTasbeeh}
+              totalReadSecs={totalReadSecs}
+              totalAyahsRead={totalAyahsRead}
+              streak={streakRef.current}
+            />
+          )}
+          {activeTab === "settings" && (
+            <SettingsScreen
+              T={T}
+              THEMES={THEMES}
+              adFree={adFree}
+              masterPromo={masterPromo}
+              setMasterPromo={setMasterPromo}
+              masterMsg={masterMsg}
+              handleMasterPromo={handleMasterPromo}
+              azanOn={azanOn}         setAzanOn={setAzanOn}
+              salahOn={salahOn}       setSalahOn={setSalahOn}
+              salahInt={salahInt}     setSalahInt={setSalahInt}
+              preOn={preOn}           setPreOn={setPreOn}
+              autoAzkar={autoAzkar}   setAutoAzkar={setAutoAzkar}
+              travelOn={travelOn}     setTravelOn={setTravelOn}
+              fastOn={fastOn}         setFastOn={setFastOn}
+              fastMT={fastMT}         setFastMT={setFastMT}
+              fastWD={fastWD}         setFastWD={setFastWD}
+              activeThemeId={activeThemeId}
+              unlockedIds={unlockedIds}
+              onSelect={selectTheme}
+              confirmPurchase={confirmPurchase}
+              purchaseInProgress={purchaseInProgress}
+              submitThemePromo={submitThemePromo}
+              vipPurchased={vipPurchased}
+              purchasedIds={purchasedIds}
+              sendNotif={sendNotif}
+              supportDone={supportDone}
+              supportCodeUsed={supportCodeUsed}
+              premiumMode={premiumMode}
+              reminderEnabled={reminderEnabled}
+              setReminderEnabled={setReminderEnabled}
+              reminderIntervalMins={reminderIntervalMins}
+              setReminderIntervalMins={setReminderIntervalMins}
+              dailyReminderTime={dailyReminderTime}
+              setDailyReminderTime={setDailyReminderTime}
+            />
+          )}
         </View>
-</View>
-    </View>
+
+        {!adFree && activeTab !== "quran" && (
+          <View style={styles.bottomAd}>
+            <Text style={styles.bottomAdText}>إعلان دعائي نظيف 📢</Text>
+          </View>
+        )}
+
+        <View style={[styles.bottomNav, { borderTopColor: T.cardBorder, backgroundColor: "#070707" }]}>
+          <View style={styles.bottomNavContent}>
+            {NAV_TABS.map((t) => {
+              const isActive = activeTab === t.id;
+              return (
+                <TouchableOpacity key={t.id} onPress={() => setActiveTab(t.id)} style={styles.navTabBtn} activeOpacity={0.7}>
+                  <View style={[styles.navTabIconWrap, isActive && { backgroundColor: T.accentSoft, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5, borderWidth: 1, borderColor: T.accentBorder }]}>
+                    <AppIcon name={t.icon} size={20} color={isActive ? T.accent : "#3a3a3a"} />
+                  </View>
+                  <Text style={[styles.navTabLabel, { color: isActive ? T.accent : "#3a3a3a", fontWeight: isActive ? "700" : "400" }]}>{t.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </SafeAreaProvider>
   );
 }
 
-// ─── DRAGGABLE TASBEEH BUBBLE ─────────────────────────────
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  );
+}
+
 function DraggableTasbeehBubble({ T, count, onTap, onClose }) {
   const pan = useRef(new Animated.ValueXY({ x: SCREEN_W - 100, y: 140 })).current;
 
@@ -1354,7 +1399,7 @@ function DraggableTasbeehBubble({ T, count, onTap, onClose }) {
       ]}
       {...panResponder.panHandlers}
     >
-<View style={styles.floatWidgetInner}>
+      <View style={styles.floatWidgetInner}>
         <TouchableOpacity onPress={onClose} style={styles.floatCloseBtn} hitSlop={{top:8,bottom:8,left:8,right:8}}>
           <Text style={styles.floatCloseBtnText}>✕</Text>
         </TouchableOpacity>
@@ -1366,741 +1411,16 @@ function DraggableTasbeehBubble({ T, count, onTap, onClose }) {
   );
 }
 
-// ─── PURCHASE MODAL ───────────────────────────────────────────────────────────
-function PurchaseModal({ T, purchaseModal, setPurchaseModal, promoInputs, setPromoCode, submitThemePromo, confirmPurchase }) {
-  if (!purchaseModal) return null;
-  const th = getTheme(purchaseModal);
-  const pi = promoInputs[purchaseModal] || {};
-  return (
-    <Modal visible={!!purchaseModal} transparent animationType="slide" onRequestClose={() => setPurchaseModal(null)}>
-      <TouchableOpacity style={styles.purchaseOverlay} activeOpacity={1} onPress={() => setPurchaseModal(null)}>
-        <TouchableOpacity activeOpacity={1} onPress={() => {}} style={[styles.purchaseSheet, { borderColor: th.accentBorder }]}>
-          <ScrollView>
-            <View style={styles.purchaseHandle} />
-            <View style={styles.purchaseHeaderRow}>
-              <LinearGradient colors={th.grad} style={styles.purchaseEmojiBox}>
-                <Text style={styles.purchaseEmoji}>{th.emoji}</Text>
-              </LinearGradient>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.purchaseName}>{th.name}</Text>
-                <Text style={styles.purchaseSubName}>مُصلِّي — متجر الثيمات</Text>
-              </View>
-              <View style={[styles.purchasePriceBadge, { backgroundColor: th.accentSoft, borderColor: th.accentBorder }]}>
-                <Text style={[styles.purchasePriceText, { color: th.accent }]}>{th.price}</Text>
-              </View>
-            </View>
-            <Text style={styles.purchaseDesc}>{th.desc}</Text>
-            {th.id === "vip_royal" && (
-              <View style={styles.vipBox}>
-                <Text style={[styles.vipBoxTitle, { color: th.accent }]}>يشمل الـ VIP:</Text>
-                {VIP_DHIKR_SLOTS.map((d, i) => (
-                  <Text key={i} style={styles.vipBoxItem}>• {d}</Text>
-                ))}
-              </View>
-            )}
-            <TouchableOpacity
-              style={[styles.purchaseBuyBtn, { backgroundColor: th.accent }]}
-              onPress={() => confirmPurchase(purchaseModal)}
-            >
-              <Text style={styles.purchaseBuyBtnText}>شراء عبر Google Play — {th.price}</Text>
-            </TouchableOpacity>
-            <View style={styles.purchasePromoSection}>
-              <Text style={styles.purchasePromoLabel}>🎁 لديك كود ترويجي؟</Text>
-              <View style={styles.purchasePromoRow}>
-                <TextInput
-                  style={[styles.purchasePromoInput, { borderColor: th.accentBorder }]}
-                  placeholder="أدخل الكود..."
-                  placeholderTextColor="#555"
-                  textAlign="right"
-                  value={pi.code || ""}
-                  onChangeText={(v) => setPromoCode(purchaseModal, v)}
-                />
-                <TouchableOpacity
-                  style={[styles.purchasePromoBtn, { backgroundColor: th.accentSoft, borderColor: th.accentBorder }]}
-                  onPress={() => submitThemePromo(purchaseModal)}
-                >
-                  <Text style={[styles.purchasePromoBtnText, { color: th.accent }]}>تفعيل</Text>
-                </TouchableOpacity>
-              </View>
-              {pi.msg ? (
-                <Text style={[styles.purchasePromoMsg, { color: pi.msg.startsWith("❌") ? "#ef4444" : "#22c55e" }]}>{pi.msg}</Text>
-              ) : null}
-            </View>
-            <TouchableOpacity style={styles.purchaseCancelBtn} onPress={() => setPurchaseModal(null)}>
-              <Text style={styles.purchaseCancelText}>إلغاء</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
-  );
-}
-
-// ─── HOME SCREEN ──────────────────────────────────────────────────────────────
-// FIX #3: Gregorian date on top, Hijri below; NO Country field; title nudged left.
-function HomeScreen({ T, bookmark, sendNotif, setActiveTab, dhikrIdx, fastAlert, hijri, greg, countdown, prayerTimes, prayerLoading }) {
-  return (
-    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-      {/* FIX #3: date order — Gregorian on top, Hijri below, no Country */}
-      <View style={[styles.homeHeader, { borderBottomColor: T.cardBorder, backgroundColor: T.cardBg }]}>
-        <View style={styles.homeHeaderDateBlock}>
-          <Text style={styles.homeHeaderGreg}>
-            {greg.dayName}، {greg.day} {greg.month} {greg.year}
-          </Text>
-          <Text style={[styles.homeHeaderHijri, { color: T.accent }]}>
-            {hijri.day} {hijri.monthName} {hijri.year} هـ
-          </Text>
-        </View>
-        {/* FIX #3: title nudged left via marginRight */}
-        <Text style={styles.homeHeaderTitle}>مُصلِّي</Text>
-      </View>
-
-      <View style={[styles.dhikrBanner, { backgroundColor: fastAlert ? "#1a0e00" : T.cardBg, borderBottomColor: fastAlert ? "#f59e0b44" : T.cardBorder }]}>
-        {fastAlert
-          ? <Text style={styles.fastAlertText}>🌟 {fastAlert}</Text>
-          : <Text style={[styles.dhikrText, { color: T.accent }]}>{DHIKR_PHRASES[dhikrIdx]}</Text>
-        }
-      </View>
-
-      {/* FIX #4: countdown uses overflow-safe formatMinutes */}
-      <View style={[styles.countdownRow, { backgroundColor: T.cardBg, borderBottomColor: T.cardBorder }]}>
-        <Text style={styles.countdownLabel}>الوقت المتبقي لأذان {countdown.label}</Text>
-        <Text style={[styles.countdownVal, { color: T.accent }]}>
-          {formatMinutes(countdown.mins)}
-        </Text>
-      </View>
-
-      <ScrollView
-        horizontal showsHorizontalScrollIndicator={false}
-        style={[styles.prayerStrip, { borderBottomColor: T.cardBorder }]}
-        contentContainerStyle={{ gap: 6, paddingHorizontal: 16 }}
-      >
-        {prayerLoading ? (
-          <View style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
-            <Text style={{ color: "#555", fontSize: 12 }}>⏳ جارٍ تحميل مواقيت الصلاة...</Text>
-          </View>
-        ) : prayerTimes.map((p) => (
-          <View key={p.name} style={[styles.prayerChip, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-            <Text style={styles.prayerChipName}>{p.name}</Text>
-            <Text style={[styles.prayerChipTime, { color: T.accent }]}>
-              {p.time ? p.time.substring(0, 5) : "--:--"}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      {bookmark && (
-        <View style={[styles.bookmarkCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}>
-          <View>
-            <Text style={styles.bookmarkLabel}>من حيث توقفت</Text>
-            <Text style={styles.bookmarkValue}>سورة الفاتحة — آية {bookmark}</Text>
-          </View>
-          <TouchableOpacity style={[styles.bookmarkBtn, { backgroundColor: T.accent }]} onPress={() => setActiveTab("quran")}>
-            <Text style={styles.bookmarkBtnText}>متابعة القراءة</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <View style={styles.homeGrid}>
-        {[
-          { icon: "📖", label: "القرآن الكريم",  sub: "سورة الفاتحة",   tab: "quran"   },
-          { icon: "📿", label: "المسبحة",         sub: "عداد التسبيح",  tab: "tasbeeh" },
-          { icon: "🧭", label: "اتجاه القبلة",    sub: "مكة المكرمة",  tab: "qibla"   },
-          { icon: "🤲", label: "الأذكار والسنن",  sub: "أذكار الصباح", tab: "azkar"   },
-        ].map((c) => (
-          <TouchableOpacity
-            key={c.label} activeOpacity={0.85}
-            onPress={() => setActiveTab(c.tab)}
-            style={[styles.homeGridCard, { backgroundColor: T.cardBg, borderColor: T.accentBorder }]}
-          >
-            <Text style={styles.homeGridIcon}>{c.icon}</Text>
-            <Text style={styles.homeGridLabel}>{c.label}</Text>
-            <Text style={styles.homeGridSub}>{c.sub}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Card T={T} title="📊 إنجاز اليوم">
-        <PBar T={T} label="أذكار الصباح"  pct={75} />
-        <PBar T={T} label="أذكار المساء"  pct={30} color="#3b82f6" />
-        <PBar T={T} label="السنن اليومية" pct={50} color="#f59e0b" />
-      </Card>
-
-      <Card T={T} title={`⏰ اقتربت صلاة ${countdown.label}`}>
-        <Text style={styles.nextPrayerSub}>متبقي {formatMinutes(countdown.mins)}</Text>
-        <TouchableOpacity
-          style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-          onPress={() => sendNotif(`🔔 اقتربت صلاة ${countdown.label}، استعد!`)}
-        >
-          <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>🔔 تذكيرني قبل 15 دقيقة</Text>
-        </TouchableOpacity>
-      </Card>
-    </ScrollView>
-  );
-}
-
-// ─── QURAN SCREEN ─────────────────────────────────────────────────────────────
-function QuranScreen({ T, fontSize, searchQuery, setSearchQuery, currentAyah, setCurrentAyah, audioPlaying, setAudioPlaying, bookmark, setBookmark, onWordPress, onWordLong, audioLoadingAyah }) {
-  const timerRef = useRef(null);
-  const tap      = (w) => { timerRef.current = setTimeout(() => { timerRef.current = null; onWordLong(w); }, 600); };
-  const release  = (w) => { if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; onWordPress(w); } };
-  const filtered = searchQuery ? FATIHA.filter((a) => a.text.includes(searchQuery)) : FATIHA;
-
-  return (
-    <View style={{ flex: 1 }}>
-      <View style={[styles.quranHeader, { borderBottomColor: T.cardBorder }]}>
-        <Text style={styles.quranHeaderTitle}>سورة الفاتحة</Text>
-        <Text style={styles.quranHeaderSub}>7 آيات — مكية — الجزء 1</Text>
-      </View>
-      <View style={[styles.quranSearchRow, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-        <Text style={styles.quranSearchIcon}>🔍</Text>
-        <TextInput
-          style={styles.quranSearchInput}
-          placeholder="ابحث في القرآن الكريم..."
-          placeholderTextColor="#555"
-          textAlign="right"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <Text style={styles.quranSearchClear}>✕</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-      <View style={styles.quranBookmarkRow}>
-        <TouchableOpacity
-          style={[styles.quranBookmarkBtn, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}
-          onPress={() => setBookmark(currentAyah + 1)}
-        >
-          <Text style={styles.quranBookmarkBtnText}>🔖 حفظ موضع القراءة</Text>
-        </TouchableOpacity>
-      </View>
-      {bookmark ? <Text style={[styles.quranBookmarkSaved, { color: T.accent }]}>✅ تم حفظ الآية {bookmark}</Text> : null}
-      <ScrollView style={{ flex: 1 }}>
-        <View style={[styles.ayahsBox, { borderColor: T.cardBorder }]}>
-          <Text style={styles.basmalah}>بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ</Text>
-          {filtered.map((ayah, idx) => (
-            <View key={ayah.id} style={[styles.ayahRow, { backgroundColor: currentAyah === idx ? `${T.accent}0d` : "transparent" }]}>
-              {bookmark === ayah.id && (
-                <View style={styles.ribbonWrap}>
-                  <LinearGradient colors={["#f59e0b", "#d97706"]} style={styles.ribbonBody} />
-                  <View style={styles.ribbonTriangle} />
-                </View>
-              )}
-              <View style={[styles.ayahNumCircle, { backgroundColor: T.ayahNumBg }]}>
-                <Text style={[styles.ayahNumText, { color: T.ayahNumColor }]}>{ayah.id}</Text>
-              </View>
-              <View style={styles.ayahWordsWrap}>
-                {ayah.words.map((w, wi) => (
-                  <TouchableOpacity key={wi} activeOpacity={0.6} onPressIn={() => tap(w)} onPressOut={() => release(w)}>
-                    <Text style={[styles.ayahWord, { fontSize }]}>{w}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ))}
-          <Text style={styles.ayahHint}>اضغط على كلمة لسماعها • اضغط مطولاً للتفسير والضبط</Text>
-        </View>
-      </ScrollView>
-      <View style={[styles.audioPlayer, { borderColor: T.cardBorder }]}>
-        <TouchableOpacity style={styles.audioBtnSmall} onPress={() => setCurrentAyah((p) => Math.max(0, p - 1))}>
-          <Text style={styles.audioBtnSmallText}>⏮</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.audioBtnMain, { backgroundColor: audioPlaying ? "#ef4444" : T.accent }]}
-          onPress={() => setAudioPlaying((p) => !p)}
-        >
-          <Text style={styles.audioBtnMainText}>{audioLoadingAyah ? "⏳" : audioPlaying ? "⏸" : "▶"}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.audioBtnSmall} onPress={() => setCurrentAyah((p) => Math.min(FATIHA.length - 1, p + 1))}>
-          <Text style={styles.audioBtnSmallText}>⏭</Text>
-        </TouchableOpacity>
-        <View style={styles.audioProgressWrap}>
-          <Text style={styles.audioProgressLabel}>الآية {currentAyah + 1} من {FATIHA.length}</Text>
-          <View style={styles.audioProgressTrack}>
-            <View style={[styles.audioProgressFill, { backgroundColor: T.accent, width: `${((currentAyah + 1) / FATIHA.length) * 100}%` }]} />
-          </View>
-        </View>
-        <Text style={[styles.audioStatus, { color: audioPlaying ? T.accent : "#444" }]}>
-          {audioLoadingAyah ? "⏳ تحميل" : audioPlaying ? "🔊 يشتغل" : "⏸ موقوف"}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-// ─── TASBEEH SCREEN ───────────────────────────────────────────────────────────
-function TasbeehScreen({ T, count, onTap, onReset, shake, flash, floatW, setFloatW, sendNotif }) {
-  const ring      = count % 100;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    Animated.timing(scaleAnim, { toValue: shake ? 0.93 : 1, duration: 150, useNativeDriver: true }).start();
-  }, [shake]);
-
-  const radius        = 60;
-  const circumference = 2 * Math.PI * radius;
-
-  return (
-    <ScrollView style={{ flex: 1 }}>
-      <SH title="📿 المسبحة الإلكترونية" T={T} />
-      <View style={styles.tasbeehCenter}>
-        <Text style={styles.tasbeehStage}>
-          {count < 33 ? "— سبحان الله —" : count < 66 ? "— الحمد لله —" : count < 100 ? "— الله أكبر —" : "🎉 اكتملت المئة!"}
-        </Text>
-        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={onTap}
-            style={[
-              styles.tasbeehBtn,
-              { borderColor: flash ? T.accent : "#222", backgroundColor: flash ? T.accentSoft : "#090909" },
-            ]}
-          >
-            <Text style={[styles.tasbeehCount, { color: flash ? T.accent : "#fff" }]}>{count}</Text>
-            <Text style={styles.tasbeehTapHint}>اضغط للعد</Text>
-          </TouchableOpacity>
-        </Animated.View>
-        <View style={styles.tasbeehRingWrap}>
-          <Svg width={140} height={140} viewBox="0 0 140 140">
-            <Circle cx={70} cy={70} r={radius} stroke="#111" strokeWidth={10} fill="none" />
-            <Circle cx={70} cy={70} r={radius} stroke={T.accent} strokeWidth={10} fill="none"
-              strokeDasharray={`${circumference}`}
-              strokeDashoffset={`${circumference * (1 - ring / 100)}`}
-              strokeLinecap="round" rotation="-90" origin="70, 70"
-            />
-            <SvgText x={70} y={78} textAnchor="middle" fill="#ccc" fontSize={15}>{ring}/100</SvgText>
-          </Svg>
-        </View>
-        <View style={styles.tasbeehActionsRow}>
-          <Btn T={T} label="🔄 إعادة" onPress={onReset} />
-          <View style={[styles.tasbeehMilestone, { backgroundColor: count >= 33 ? T.accentSoft : "#0a0a0a", borderColor: count >= 33 ? T.accent : "#222" }]}>
-            <Text style={[styles.tasbeehMilestoneText, { color: count >= 33 ? T.accent : "#444" }]}>33 ✓</Text>
-          </View>
-          <View style={[styles.tasbeehMilestone, { backgroundColor: count >= 100 ? T.accentSoft : "#0a0a0a", borderColor: count >= 100 ? T.accent : "#222" }]}>
-            <Text style={[styles.tasbeehMilestoneText, { color: count >= 100 ? T.accent : "#444" }]}>100 ✓</Text>
-          </View>
-        </View>
-      </View>
-      <Card T={T} title="خيارات متقدمة">
-        <Toggle
-          T={T}
-          label="🫧 فقاعة التسبيح"
-          sub="تظهر فوق شاشات التطبيق وقابلة للسحب والضغط — اضغط عليها للعدّ مباشرة"
-          value={floatW}
-          onChange={(v) => { setFloatW(v); sendNotif(v ? "✅ فقاعة التسبيح مفعّلة" : "⏹ الفقاعة موقوفة"); }}
-        />
-      </Card>
-    </ScrollView>
-  );
-}
-
-// ─── QIBLA SCREEN ─────────────────────────────────────────────────────────────
-function QiblaScreen({ T, compassAngle, isAligned, qiblaAngle, userLocation }) {
-  const needleRotation = (compassAngle - qiblaAngle + 360) % 360;
-  return (
-    <ScrollView style={{ flex: 1 }}>
-      <SH title="🧭 اتجاه القبلة" sub={`مكة المكرمة — ${Math.round(qiblaAngle)}° من الشمال`} T={T} />
-      <View style={styles.qiblaWrap}>
-        <View style={[styles.qiblaCircle, { borderColor: isAligned ? "#22c55e" : "#222" }]}>
-          <Text style={[styles.qiblaDir, styles.qiblaDirN]}>N</Text>
-          <Text style={[styles.qiblaDir, styles.qiblaDirE]}>E</Text>
-          <Text style={[styles.qiblaDir, styles.qiblaDirS]}>S</Text>
-          <Text style={[styles.qiblaDir, styles.qiblaDirW]}>W</Text>
-          <View style={[styles.qiblaNeedleWrap, { transform: [{ rotate: `${needleRotation}deg` }] }]}>
-            <View style={styles.qiblaArrowUpWrap}>
-              <View style={[styles.qiblaArrowUp, { borderBottomColor: isAligned ? "#22c55e" : "#ef4444" }]} />
-            </View>
-            <View style={styles.qiblaArrowDownWrap}>
-              <View style={styles.qiblaArrowDown} />
-            </View>
-          </View>
-          <Text style={styles.qiblaKaaba}>🕋</Text>
-        </View>
-        <View style={styles.qiblaStatusWrap}>
-          {isAligned
-            ? <Text style={styles.qiblaAligned}>✅ أنت تواجه القبلة!</Text>
-            : <Text style={styles.qiblaNotAligned}>🔄 أدر الجهاز نحو القبلة</Text>
-          }
-          <Text style={styles.qiblaAngle}>الزاوية الحالية: {Math.round(compassAngle)}° | القبلة: {Math.round(qiblaAngle)}°</Text>
-        </View>
-        <Card T={T} title="📍 الموقع الحالي" style={{ marginTop: 20, width: "100%" }}>
-          <RI label="خط العرض"     value={userLocation ? `${userLocation.latitude.toFixed(4)}°`  : "—"} />
-          <RI label="خط الطول"     value={userLocation ? `${userLocation.longitude.toFixed(4)}°` : "—"} />
-          <RI label="اتجاه القبلة" value={`${Math.round(qiblaAngle)}° شمالاً`} />
-        </Card>
-      </View>
-    </ScrollView>
-  );
-}
-
-// ─── AZKAR SCREEN ─────────────────────────────────────────────────────────────
-function AzkarScreen({ T, azkarTab, setAzkarTab, morningC, setMorningC, eveningC, setEveningC, sleepC, setSleepC, travelC, setTravelC, homeC, setHomeC, sunnahC, setSunnahC, decrement }) {
-  const TABS = [
-    { id: "morning", label: "الصباح", icon: "🌅" },
-    { id: "evening", label: "المساء", icon: "🌇" },
-    { id: "sleep",   label: "النوم",  icon: "🌙" },
-    { id: "home",    label: "المنزل", icon: "🏠" },
-    { id: "travel",  label: "السفر",  icon: "✈️" },
-    { id: "sunnah",  label: "السنن",  icon: "✨" },
-  ];
-  const dataMap = {
-    morning: [MORNING_AZKAR, morningC, setMorningC],
-    evening: [EVENING_AZKAR, eveningC, setEveningC],
-    sleep:   [SLEEP_AZKAR,   sleepC,   setSleepC],
-    travel:  [TRAVEL_AZKAR,  travelC,  setTravelC],
-    home:    [HOME_AZKAR,    homeC,    setHomeC],
-    sunnah:  [SUNNAH_LIST,   sunnahC,  setSunnahC],
-  };
-  const [data, counts, setCounts] = dataMap[azkarTab];
-  return (
-    <View style={{ flex: 1 }}>
-      <SH title="🤲 الأذكار والسنن" T={T} />
-      <View style={[styles.azkarGridRow, { borderBottomColor: T.cardBorder }]}>
-        {TABS.map((tab) => {
-          const isActive = azkarTab === tab.id;
-          return (
-            <TouchableOpacity key={tab.id} onPress={() => setAzkarTab(tab.id)}
-              style={[styles.azkarGridBtn, { backgroundColor: isActive ? T.accentSoft : "#0a0a0a", borderColor: isActive ? T.accent : "#1a1a1a" }]}
-            >
-              <Text style={{ fontSize: 18 }}>{tab.icon}</Text>
-              <Text style={[styles.azkarGridText, { color: isActive ? T.accent : "#555", fontWeight: isActive ? "700" : "400" }]}>{tab.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      <ScrollView style={styles.azkarListWrap}>
-        {data.map((item, idx) =>
-          counts[idx] > 0 ? (
-            <View key={idx} style={[styles.azkarCard, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-              <Text style={[styles.azkarCardLabel, { color: T.accent }]}>{item.label}</Text>
-              <Text style={styles.azkarCardText}>{item.text}</Text>
-              <View style={styles.azkarCardFooter}>
-                <TouchableOpacity
-                  style={[styles.azkarRecordBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-                  onPress={() => decrement(counts, setCounts, idx)}
-                >
-                  <Text style={[styles.azkarRecordBtnText, { color: T.accent }]}>تسجيل ({counts[idx]})</Text>
-                </TouchableOpacity>
-                <View style={styles.azkarCounterCircle}>
-                  <Text style={[styles.azkarCounterText, { color: T.accent }]}>{counts[idx]}</Text>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <View key={idx} style={[styles.azkarCard, styles.azkarCardDone, { backgroundColor: T.cardBg, borderColor: T.cardBorder }]}>
-              <Text style={[styles.azkarCardLabel, { color: T.accent }]}>{item.label}</Text>
-              <Text style={styles.azkarDoneText}>✅ اكتمل</Text>
-            </View>
-          )
-        )}
-      </ScrollView>
-    </View>
-  );
-}
-
-// ─── STATS SCREEN ─────────────────────────────────────────────────────────────
-function StatsScreen({ T, totalTasbeeh, totalReadSecs, totalAyahsRead, streak }) {
-  const maxMins = Math.max(...WEEKLY_STATS.map((d) => d.mins));
-  return (
-    <ScrollView style={{ flex: 1 }}>
-      <SH title="📊 إحصاءات القراءة" sub="متابعة لحظية" T={T} />
-      <View style={styles.statsGrid}>
-        {[
-          { icon: "⏱️", val: formatSeconds(totalReadSecs), unit: "",       label: "إجمالي القراءة",  color: T.accent  },
-          { icon: "📖", val: String(totalAyahsRead),       unit: "آية",    label: "آيات مقروءة",     color: "#3b82f6" },
-          { icon: "🔥", val: String(streak),               unit: "أيام",   label: "أيام متتالية",    color: "#f59e0b" },
-          { icon: "📿", val: String(totalTasbeeh),         unit: "تسبيحة", label: "إجمالي التسبيح",  color: "#8b5cf6" },
-        ].map((s) => (
-          <View key={s.label} style={[styles.statBox, { borderColor: `${s.color}33` }]}>
-            <Text style={styles.statIcon}>{s.icon}</Text>
-            <Text style={[styles.statVal, { color: s.color }]}>{s.val}</Text>
-            <Text style={[styles.statUnit, { color: s.color }]}>{s.unit}</Text>
-            <Text style={styles.statLabel}>{s.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <Card T={T} title="دقائق القراءة اليومية (مرجعي)">
-        <View style={styles.barsRow}>
-          {WEEKLY_STATS.map((d, i) => (
-            <View key={i} style={styles.barCol}>
-              <Text style={[styles.barVal, { color: T.accent }]}>{d.mins}</Text>
-              <View style={[styles.barFill, { height: (d.mins / maxMins) * 82, backgroundColor: T.accentSoft, borderTopColor: T.accent }]} />
-              <Text style={styles.barDay}>{d.day.slice(0, 3)}</Text>
-            </View>
-          ))}
-        </View>
-      </Card>
-
-      <Card T={T} title="آيات مقروءة يومياً (مرجعي)">
-        <View style={[styles.barsRow, { height: 80 }]}>
-          {WEEKLY_STATS.map((d, i) => (
-            <View key={i} style={styles.barCol}>
-              <Text style={[styles.barVal, { color: "#3b82f6" }]}>{d.ayahs}</Text>
-              <View style={[styles.barFill, { height: (d.ayahs / 50) * 66, backgroundColor: "#3b82f61a", borderTopColor: "#3b82f6" }]} />
-              <Text style={styles.barDay}>{d.day.slice(0, 3)}</Text>
-            </View>
-          ))}
-        </View>
-      </Card>
-
-      <Card T={T} title="🏆 الإنجازات">
-        {[
-          { icon: "🌟", label: "حافظ الفاتحة",        done: totalAyahsRead >= 7,  desc: "قرأت سورة الفاتحة كاملة" },
-          { icon: "📿", label: "100 تسبيحة في يوم",   done: totalTasbeeh >= 100,  desc: "سبّحت 100 مرة" },
-          { icon: "🔥", label: "7 أيام متتالية",       done: streak >= 7,          desc: "استخدمت التطبيق 7 أيام متتالية" },
-          { icon: "📖", label: "ختمة كاملة",           done: false,                desc: "اقرأ القرآن كاملاً" },
-          { icon: "🌙", label: "أذكار النوم 30 يوماً", done: false,                desc: "أكمل أذكار النوم 30 يوماً" },
-        ].map((a, i) => (
-          <View key={i} style={[styles.achievementRow, { backgroundColor: a.done ? "#0a1a0a" : "#0a0a0a", borderColor: a.done ? "#22c55e22" : "#111", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 }]}>
-            <Text style={{ fontSize: 26 }}>{a.icon}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.achievementLabel, { color: a.done ? "#e2e8f0" : "#444", fontWeight: "700" }]}>{a.label}</Text>
-              <Text style={{ color: a.done ? "#22c55e88" : "#333", fontSize: 11, marginTop: 2 }}>{a.desc}</Text>
-            </View>
-            <Text style={{ fontSize: 22 }}>{a.done ? "✅" : "🔒"}</Text>
-          </View>
-        ))}
-      </Card>
-    </ScrollView>
-  );
-}
-
-// ─── SETTINGS SCREEN ──────────────────────────────────────────────────────────
-// FIX #1: مستشار الفتوى — زر + modal + state + FATWA_QA + sendFatwa حُذفوا كلياً
-// FIX #2: متجر الثيمات + زر التبرع يظهران فقط للمشترين الحقيقيين
-// FIX #3: حقل الدولة محذوف، التواريخ مرتبة صحيحاً، الشعار يميل يساراً
-// FIX #4: formatMinutes و formatSeconds مصححتان
-function SettingsScreen({
-  T, adFree, masterPromo, setMasterPromo, masterMsg, handleMasterPromo,
-  azanOn, setAzanOn, salahOn, setSalahOn, salahInt, setSalahInt,
-  preOn, setPreOn, autoAzkar, setAutoAzkar, travelOn, setTravelOn,
-  fastOn, setFastOn, fastMT, setFastMT, fastWD, setFastWD,
-  activeThemeId, unlockedIds, onSelect, onBuy, vipPurchased, purchasedIds,
-sendNotif, onOpenAbout, supportDone, supportCodeUsed,  reminderEnabled, setReminderEnabled,
-  reminderIntervalMins, setReminderIntervalMins,
-  dailyReminderTime, setDailyReminderTime,
-}) {
-  const [dailyHour, setDailyHour]     = useState(dailyReminderTime.split(":")[0] || "07");
-  const [dailyMinute, setDailyMinute] = useState(dailyReminderTime.split(":")[1] || "00");
-
-  const applyTime = () => {
-    let h = parseInt(dailyHour, 10);
-    let m = parseInt(dailyMinute, 10);
-    if (isNaN(h) || h < 0 || h > 23) h = 7;
-    if (isNaN(m) || m < 0 || m > 59) m = 0;
-    const hStr = pad(h);
-    const mStr = pad(m);
-    setDailyHour(hStr);
-    setDailyMinute(mStr);
-    setDailyReminderTime(`${hStr}:${mStr}`);
-    sendNotif(`✅ التذكير اليومي: ${hStr}:${mStr}`);
-  };
-
-
-  return (
-    <ScrollView style={{ flex: 1 }}>
-      <SH title="⚙️ الإعدادات" T={T} />
-
-        <Card T={T} title="🎨 متجر الثيمات">
-          {THEMES.map((th) => {
-            const owned  = unlockedIds.includes(th.id);
-            const active = activeThemeId === th.id;
-            return (
-              <View key={th.id} style={styles.themeRow}>
-                <LinearGradient colors={th.grad} style={styles.themeEmojiBox}>
-                  <Text style={styles.themeEmoji}>{th.emoji}</Text>
-                </LinearGradient>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.themeName}>{th.name}</Text>
-                  <Text style={styles.themeDesc}>{th.desc}</Text>
-                </View>
-                {owned ? (
-                  <TouchableOpacity
-                    style={[styles.themeActionBtn, { backgroundColor: active ? th.accentSoft : "#111", borderColor: active ? th.accent : "#222" }]}
-                    onPress={() => onSelect(th.id)}
-                  >
-                    <Text style={[styles.themeActionText, { color: active ? th.accent : "#666", fontWeight: active ? "700" : "400" }]}>
-                      {active ? "✅ مفعّل" : "تطبيق"}
-                    </Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.themeActionBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-                    onPress={() => onBuy(th.id)}
-                  >
-                    <Text style={[styles.themeActionText, { color: T.accent, fontWeight: "700" }]}>{th.price} 🔒</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            );
-          })}
-        </Card>
-
-      {/* Promo code — always visible (removes ads only, no theme store unlock) */}
-      <Card T={T} title="🎁 كود ترويجي">
-        <View style={styles.promoRow}>
-          <TextInput
-            style={[styles.promoInput, { borderColor: T.cardBorder }]}
-            placeholder="أدخل الكود الترويجي..."
-            placeholderTextColor="#555"
-            textAlign="right"
-            value={masterPromo}
-            onChangeText={setMasterPromo}
-          />
-          <TouchableOpacity
-            style={[styles.promoBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-            onPress={handleMasterPromo}
-          >
-            <Text style={[styles.promoBtnText, { color: T.accent }]}>تفعيل</Text>
-          </TouchableOpacity>
-        </View>
-        {masterMsg ? (
-          <Text style={[styles.promoMsg, { color: masterMsg.startsWith("❌") ? "#ef4444" : masterMsg.startsWith("❤️") ? "#ec4899" : "#22c55e" }]}>{masterMsg}</Text>
-        ) : null}
-        {adFree ? <Text style={styles.promoAdFree}>✅ الإعلانات محذوفة</Text> : null}
-      </Card>
-{/* التبرع يظهر فقط لمن أتم شراء حقيقي — لا يظهر لمستخدمي كود الدعم المجاني */}
-{!supportDone && !supportCodeUsed && (
-  <Card T={T} title="">
-    <TouchableOpacity
-      onPress={() => {
-        sendNotif("⏳ سيتم دعم Google Play قريباً");
-      }}
-    >
-      <LinearGradient colors={["#f59e0b", "#d97706"]} style={styles.donateBtn}>
-        <Text style={styles.donateBtnText}>💛 دعم استمرار وتطوير التطبيق</Text>
-      </LinearGradient>
-    </TouchableOpacity>
-    <Text style={{ color: "#555", fontSize: 11, textAlign: "center", marginTop: 6 }}>
-      تكامل Google Play قيد التطوير
-    </Text>
-  </Card>
-)}
-
-      {supportDone && (
-        <Card T={T} title="">
-          <Text style={{ color: T.accent, textAlign: "center", fontSize: 14, fontWeight: "700", paddingVertical: 8 }}>
-            💛 جزاك الله خيراً — دعمك يساعد على استمرار التطبيق!
-          </Text>
-        </Card>
-      )}
-
-      {/* Pop-up Reminders */}
-      <Card T={T} title="🔔 التذكيرات الدورية">
-        <Toggle
-          T={T}
-          label="تفعيل التذكيرات"
-          sub="أحاديث، سنن، أذكار، آية الكرسي"
-          value={reminderEnabled}
-          onChange={setReminderEnabled}
-        />
-        {reminderEnabled && (
-          <>
-            <Text style={[styles.salahIntLabel, { marginTop: 12 }]}>الفترة بين التذكيرات</Text>
-            <View style={styles.salahIntRow}>
-              {[15, 30, 60].map((v) => (
-                <TouchableOpacity key={v}
-                  style={[styles.salahIntBtn, { backgroundColor: reminderIntervalMins === v ? T.accentSoft : "#111", borderColor: reminderIntervalMins === v ? T.accent : "#222" }]}
-                  onPress={() => setReminderIntervalMins(v)}
-                >
-                  <Text style={[styles.salahIntBtnText, { color: reminderIntervalMins === v ? T.accent : "#555" }]}>{v} دقيقة</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <Text style={[styles.salahIntLabel, { marginTop: 14 }]}>وقت التذكير اليومي</Text>
-            <View style={{ flexDirection: "row", gap: 8, alignItems: "center", marginTop: 6 }}>
-              <TextInput
-                style={[styles.promoInput, { flex: 1, borderColor: T.cardBorder }]}
-                placeholder="الساعة (00-23)"
-                placeholderTextColor="#555"
-                keyboardType="numeric"
-                maxLength={2}
-                textAlign="center"
-                value={dailyHour}
-                onChangeText={setDailyHour}
-              />
-              <Text style={{ color: "#888", fontSize: 18, fontWeight: "700" }}>:</Text>
-              <TextInput
-                style={[styles.promoInput, { flex: 1, borderColor: T.cardBorder }]}
-                placeholder="الدقيقة (00-59)"
-                placeholderTextColor="#555"
-                keyboardType="numeric"
-                maxLength={2}
-                textAlign="center"
-                value={dailyMinute}
-                onChangeText={setDailyMinute}
-              />
-              <TouchableOpacity
-                style={[styles.promoBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder }]}
-                onPress={applyTime}
-              >
-                <Text style={[styles.promoBtnText, { color: T.accent }]}>حفظ</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={{ color: "#555", fontSize: 11, marginTop: 8 }}>
-              التذكير اليومي الحالي: {dailyReminderTime}
-            </Text>
-          </>
-        )}
-      </Card>
-
-      {/* Azan & alerts */}
-      <Card T={T} title="🔊 الأذان والتنبيهات الصوتية">
-        <Toggle T={T} label="📡 أذان الصلوات الخمس"  sub="صوت الأذان عند وقت كل صلاة"       value={azanOn}    onChange={setAzanOn} />
-        <Toggle T={T} label="🕌 الصلاة على النبي ﷺ"  sub="تنبيه صوتي دوري"                 value={salahOn}   onChange={setSalahOn} />
-        {salahOn && (
-          <View style={styles.salahIntWrap}>
-            <Text style={styles.salahIntLabel}>كل كم دقيقة؟</Text>
-            <View style={styles.salahIntRow}>
-              {[15, 30, 60].map((v) => (
-                <TouchableOpacity key={v}
-                  style={[styles.salahIntBtn, { backgroundColor: salahInt === v ? T.accentSoft : "#111", borderColor: salahInt === v ? T.accent : "#222" }]}
-                  onPress={() => setSalahInt(v)}
-                >
-                  <Text style={[styles.salahIntBtnText, { color: salahInt === v ? T.accent : "#555" }]}>{v} دقيقة</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-        <Toggle T={T} label="⏰ تنبيه قبل الصلاة"    sub="تحذير 15 دقيقة قبل كل أذان"       value={preOn}     onChange={setPreOn} />
-        <Toggle T={T} label="🤲 أذكار تلقائية"        sub="صباح 7:00 ومغرب كل يوم"           value={autoAzkar}  onChange={setAutoAzkar} />
-        <Toggle T={T} label="🚗 مُذكِّر السفر الذكي"   sub="تشغيل تلقائي عند السرعة > 40 كم/س" value={travelOn}  onChange={setTravelOn} />
-      </Card>
-
-      {/* Fasting */}
-      <Card T={T} title="🌙 صيام النوافل والأيام البيض">
-        <Toggle T={T} label="تفعيل تذكير الصيام" value={fastOn} onChange={setFastOn} />
-        {fastOn && (
-          <>
-            <Toggle T={T} label="الإثنين والخميس"         sub="تذكير أسبوعي بصيام السنة"  value={fastMT} onChange={setFastMT} />
-            <Toggle T={T} label="الأيام البيض 13، 14، 15" sub="تذكير شهري قمري"            value={fastWD} onChange={setFastWD} />
-          </>
-        )}
-      </Card>
-
-      {/* About App */}
-      <Card T={T} title="ℹ️ عن التطبيق">
-        <TouchableOpacity
-          style={[styles.nextPrayerBtn, { backgroundColor: T.accentSoft, borderColor: T.accentBorder, marginTop: 4 }]}
-          onPress={onOpenAbout}
-        >
-          <Text style={[styles.nextPrayerBtnText, { color: T.accent }]}>📋 عرض تفاصيل التطبيق</Text>
-        </TouchableOpacity>
-        <RI label="الإصدار"           value="3.0.0" />
-        <RI label="البيانات القرآنية"  value="محققة ومعتمدة 100%" />
-      </Card>
-    </ScrollView>
-  );
-}
-
-// ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   appRoot:      { flex: 1, width: "100%", maxWidth: 430, alignSelf: "center" },
   screensWrap:  { flex: 1, paddingBottom: 80 },
+
+  crashWrap:  { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", padding: 24 },
+  crashEmoji: { fontSize: 48, marginBottom: 14 },
+  crashTitle: { color: "#fff", fontSize: 18, fontWeight: "800", marginBottom: 8 },
+  crashSub:   { color: "#888", fontSize: 13, textAlign: "center", marginBottom: 20 },
+  crashBtn:   { backgroundColor: "#22c55e", borderRadius: 14, paddingVertical: 12, paddingHorizontal: 28 },
+  crashBtnText: { color: "#000", fontSize: 14, fontWeight: "800" },
 
   splashWrap:    { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
   splashGlow:    { position: "absolute", width: 320, height: 320, borderRadius: 160, backgroundColor: "#22c55e1a", top: "28%" },
@@ -2119,11 +1439,6 @@ const styles = StyleSheet.create({
   adSkip:      { position: "absolute", top: 60, right: 16, backgroundColor: "#1a1a1a", borderRadius: 20, borderWidth: 1, borderColor: "#333", paddingHorizontal: 20, paddingVertical: 10 },
   adSkipText:  { color: "#ccc", fontSize: 13 },
 
-  premiumWrap:   { position: "absolute", bottom: 95, left: 0, right: 0, alignItems: "center", zIndex: 200 },
-  premiumBadge:  { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "#1a1100", borderWidth: 1, borderColor: "#f59e0b60", borderRadius: 22, paddingHorizontal: 20, paddingVertical: 7 },
-  premiumStar:   { fontSize: 15 },
-  premiumText:   { color: "#f59e0b", fontSize: 14, fontWeight: "700", letterSpacing: 0.5 },
-
   toast:     { position: "absolute", top: 16, left: "50%", marginLeft: -100, width: 200, alignItems: "center", backgroundColor: "#111", borderWidth: 1, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, zIndex: 1500 },
   toastText: { color: "#e2e8f0", fontSize: 13, textAlign: "center" },
 
@@ -2140,12 +1455,18 @@ const styles = StyleSheet.create({
   floatWidgetLabel: { fontSize: 10, marginTop: 1 },
   floatWidgetEmoji: { fontSize: 22 },
   floatWidgetCount: { fontSize: 18, fontWeight: "900" },
+  floatCloseBtn:     { position: "absolute", top: -8, right: -8, backgroundColor: "#333", borderRadius: 10, width: 20, height: 20, alignItems: "center", justifyContent: "center" },
+  floatCloseBtnText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 
   wordPopup:    { position: "absolute", top: "28%", left: "50%", marginLeft: -105, width: 210, backgroundColor: "#0d0d0d", borderWidth: 1, borderRadius: 18, padding: 20, alignItems: "center", zIndex: 800 },
   wordPopupText:{ color: "#f0e6d3", fontSize: 32, marginBottom: 12 },
   soundWaveRow: { flexDirection: "row", alignItems: "center", gap: 3, height: 36, marginBottom: 8 },
   soundWaveBar: { width: 3, borderRadius: 2 },
   wordPopupSub: { color: "#666", fontSize: 12 },
+
+  riRow:   { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
+  riLabel: { color: "#555", fontSize: 12 },
+  riValue: { color: "#e2e8f0", fontSize: 13, fontWeight: "600" },
 
   modalOverlay:      { flex: 1, backgroundColor: "#000000aa", alignItems: "center", justifyContent: "center" },
   longModalBox:      { backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 22, padding: 22, maxWidth: 340, width: "90%", maxHeight: "80%" },
@@ -2159,207 +1480,11 @@ const styles = StyleSheet.create({
   longModalClose:    { width: "100%", marginTop: 14, borderRadius: 12, paddingVertical: 10, alignItems: "center" },
   longModalCloseText:{ color: "#000", fontSize: 14, fontWeight: "700" },
 
-  purchaseOverlay:   { flex: 1, backgroundColor: "#000000bb", justifyContent: "flex-end" },
-  purchaseSheet:     { backgroundColor: "#0d0d0d", borderWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40, maxHeight: "85%" },
-  purchaseHandle:    { width: 40, height: 4, backgroundColor: "#333", borderRadius: 2, alignSelf: "center", marginBottom: 20 },
-  purchaseHeaderRow: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 18 },
-  purchaseEmojiBox:  { width: 54, height: 54, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  purchaseEmoji:     { fontSize: 26 },
-  purchaseName:      { color: "#fff", fontSize: 16, fontWeight: "800" },
-  purchaseSubName:   { color: "#666", fontSize: 12, marginTop: 2 },
-  purchasePriceBadge:{ borderWidth: 1, paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20 },
-  purchasePriceText: { fontSize: 14, fontWeight: "800" },
-  purchaseDesc:      { color: "#888", fontSize: 12, marginBottom: 18, lineHeight: 20 },
-  vipBox:            { backgroundColor: "#ffffff08", borderWidth: 1, borderColor: "#ffffff14", borderRadius: 12, padding: 14, marginBottom: 16 },
-  vipBoxTitle:       { fontSize: 13, fontWeight: "700", marginBottom: 10 },
-  vipBoxItem:        { color: "#ccc", fontSize: 12, marginBottom: 6, lineHeight: 18 },
-  purchaseBuyBtn:    { width: "100%", borderRadius: 14, paddingVertical: 14, alignItems: "center", marginBottom: 14 },
-  purchaseBuyBtnText:{ color: "#000", fontSize: 15, fontWeight: "800" },
-  purchasePromoSection:{ borderTopWidth: 1, borderTopColor: "#1e1e1e", paddingTop: 14 },
-  purchasePromoLabel:  { color: "#666", fontSize: 12, marginBottom: 8 },
-  purchasePromoRow:    { flexDirection: "row", gap: 8 },
-  purchasePromoInput:  { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
-  purchasePromoBtn:    { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
-  purchasePromoBtnText:{ fontSize: 13, fontWeight: "700" },
-  purchasePromoMsg:    { fontSize: 12, marginTop: 6 },
-  purchaseCancelBtn:   { width: "100%", marginTop: 12, alignItems: "center" },
-  purchaseCancelText:  { color: "#444", fontSize: 13 },
-
-  shWrap:    { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 12, borderBottomWidth: 1 },
-  shTitle:   { color: "#fff", fontSize: 20, fontWeight: "800" },
-  shSub:     { color: "#555", fontSize: 12, marginTop: 3 },
   card:      { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12 },
   cardTitle: { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginBottom: 12 },
 
-  pbarRow:   { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  pbarLabel: { color: "#888", fontSize: 12 },
-  pbarPct:   { fontSize: 12, fontWeight: "700" },
-  pbarTrack: { height: 5, backgroundColor: "#111", borderRadius: 3 },
-  pbarFill:  { height: "100%", borderRadius: 3 },
-
-  riRow:   { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  riLabel: { color: "#555", fontSize: 12 },
-  riValue: { color: "#e2e8f0", fontSize: 13, fontWeight: "600" },
-
-  toggleRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  toggleLabel: { color: "#e2e8f0", fontSize: 13 },
-  toggleSub:   { color: "#555", fontSize: 11, marginTop: 2 },
-  toggleTrack: { width: 44, height: 24, borderRadius: 12, justifyContent: "center" },
-  toggleThumb: { position: "absolute", top: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: "#fff" },
-
   btn:     { borderWidth: 1, borderRadius: 20 },
   btnText: { fontWeight: "600" },
-
-  // FIX #3: Gregorian on top, Hijri below, title shifted left, NO country field
-  homeHeader:          { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  homeHeaderDateBlock: { flex: 1 },
-  homeHeaderGreg:      { color: "#888", fontSize: 12, marginBottom: 2 },
-  homeHeaderHijri:     { fontSize: 13, fontWeight: "700" },
-  homeHeaderTitle:     { fontSize: 22, fontWeight: "900", color: "#fff", marginRight: 10 },
-
-  dhikrBanner:   { paddingHorizontal: 16, paddingVertical: 10, minHeight: 44, justifyContent: "center", borderBottomWidth: 1 },
-  fastAlertText: { color: "#f59e0b", fontSize: 13, fontWeight: "700", lineHeight: 19 },
-  dhikrText:     { fontSize: 14, opacity: 0.85, textAlign: "center" },
-
-  countdownRow:  { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1 },
-  countdownLabel:{ color: "#666", fontSize: 12 },
-  countdownVal:  { fontSize: 22, fontWeight: "900", letterSpacing: 1 },
-
-  prayerStrip:    { paddingVertical: 10, borderBottomWidth: 1 },
-  prayerChip:     { alignItems: "center", gap: 2, minWidth: 60, borderWidth: 1, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 4 },
-  prayerChipName: { fontSize: 12, color: "#e2e8f0" },
-  prayerChipTime: { fontSize: 13, fontWeight: "700" },
-
-  bookmarkCard:    { borderWidth: 1, borderRadius: 16, padding: 16, marginHorizontal: 16, marginVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  bookmarkLabel:   { color: "#666", fontSize: 11 },
-  bookmarkValue:   { color: "#e2e8f0", fontSize: 14, fontWeight: "700" },
-  bookmarkBtn:     { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  bookmarkBtnText: { color: "#000", fontSize: 13, fontWeight: "800" },
-
-  homeGrid:     { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  homeGridCard: { width: "47%", borderWidth: 1, borderRadius: 18, paddingVertical: 20, paddingHorizontal: 12, alignItems: "center", gap: 7 },
-  homeGridIcon: { fontSize: 34 },
-  homeGridLabel:{ fontSize: 14, color: "#e2e8f0", fontWeight: "700" },
-  homeGridSub:  { fontSize: 11, color: "#555" },
-
-  nextPrayerSub:     { color: "#666", fontSize: 13 },
-  nextPrayerBtn:     { marginTop: 10, borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8, alignSelf: "flex-start" },
-  nextPrayerBtnText: { fontSize: 13, fontWeight: "700" },
-
-  quranHeader:         { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1 },
-  quranHeaderTitle:    { color: "#fff", fontSize: 21, fontWeight: "800" },
-  quranHeaderSub:      { color: "#555", fontSize: 12 },
-  quranSearchRow:      { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 22, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 14, paddingVertical: 8 },
-  quranSearchIcon:     { color: "#555", fontSize: 15 },
-  quranSearchInput:    { flex: 1, color: "#e2e8f0", fontSize: 14, padding: 0 },
-  quranSearchClear:    { color: "#555", fontSize: 14 },
-  quranBookmarkRow:    { alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 },
-  quranBookmarkBtn:    { borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6 },
-  quranBookmarkBtnText:{ color: "#e2e8f0", fontSize: 12 },
-  quranBookmarkSaved:  { fontSize: 12, textAlign: "center", marginBottom: 6 },
-  ayahsBox:     { backgroundColor: "#030303", borderWidth: 1, borderRadius: 18, marginHorizontal: 16, marginBottom: 12, padding: 16 },
-  basmalah:     { textAlign: "center", color: "#f59e0b", fontSize: 14, marginBottom: 16, letterSpacing: 3 },
-  ayahRow:      { position: "relative", flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 12, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: "#0d0d0d", borderRadius: 8 },
-  ribbonWrap:   { position: "absolute", top: -2, right: -4, width: 18, height: 36, zIndex: 2 },
-  ribbonBody:   { width: 18, height: 30, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
-  ribbonTriangle:{ width: 0, height: 0, borderLeftWidth: 9, borderRightWidth: 9, borderTopWidth: 8, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#030303" },
-  ayahNumCircle:{ minWidth: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 6 },
-  ayahNumText:  { fontSize: 12 },
-  ayahWordsWrap:{ flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 4 },
-  ayahWord:     { color: "#f0e6d3", paddingHorizontal: 5, paddingVertical: 2, lineHeight: 48 },
-  ayahHint:     { textAlign: "center", color: "#333", fontSize: 11, marginTop: 14 },
-
-  audioPlayer:        { backgroundColor: "#050505", borderTopWidth: 1, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 10 },
-  audioBtnSmall:      { backgroundColor: "#111", borderWidth: 1, borderColor: "#222", width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  audioBtnSmallText:  { color: "#ccc", fontSize: 15 },
-  audioBtnMain:       { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
-  audioBtnMainText:   { color: "#000", fontSize: 20, fontWeight: "800" },
-  audioProgressWrap:  { flex: 1, marginRight: 8 },
-  audioProgressLabel: { color: "#888", fontSize: 11, marginBottom: 4 },
-  audioProgressTrack: { height: 4, backgroundColor: "#1a1a1a", borderRadius: 2 },
-  audioProgressFill:  { height: "100%", borderRadius: 2 },
-  audioStatus:        { fontSize: 10 },
-
-  tasbeehCenter:        { alignItems: "center", paddingVertical: 24 },
-  tasbeehStage:         { color: "#555", fontSize: 14, marginBottom: 20 },
-  tasbeehBtn:           { width: 210, height: 210, borderRadius: 105, borderWidth: 3, alignItems: "center", justifyContent: "center" },
-  tasbeehCount:         { fontSize: 64, fontWeight: "900" },
-  tasbeehTapHint:       { fontSize: 12, color: "#444", marginTop: 4 },
-  tasbeehRingWrap:      { marginTop: 22, alignItems: "center" },
-  tasbeehActionsRow:    { flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 14, flexWrap: "wrap" },
-  tasbeehMilestone:     { borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  tasbeehMilestoneText: { fontSize: 12 },
-
-  qiblaWrap:         { alignItems: "center", paddingVertical: 28, paddingHorizontal: 16 },
-  qiblaCircle:       { width: 240, height: 240, borderRadius: 120, borderWidth: 4, backgroundColor: "#050505", alignItems: "center", justifyContent: "center", position: "relative" },
-  qiblaDir:          { position: "absolute", color: "#333", fontSize: 12, fontWeight: "700" },
-  qiblaDirN:         { top: 10, left: "50%", marginLeft: -6 },
-  qiblaDirE:         { right: 10, top: "50%", marginTop: -8 },
-  qiblaDirS:         { bottom: 10, left: "50%", marginLeft: -6 },
-  qiblaDirW:         { left: 10, top: "50%", marginTop: -8 },
-  qiblaNeedleWrap:   { position: "absolute", width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
-  qiblaArrowUpWrap:  { position: "absolute", top: 18, alignItems: "center" },
-  qiblaArrowUp:      { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderBottomWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent" },
-  qiblaArrowDownWrap:{ position: "absolute", bottom: 18, alignItems: "center" },
-  qiblaArrowDown:    { width: 0, height: 0, borderLeftWidth: 7, borderRightWidth: 7, borderTopWidth: 72, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: "#333" },
-  qiblaKaaba:        { fontSize: 38, zIndex: 2 },
-  qiblaStatusWrap:   { marginTop: 26, alignItems: "center" },
-  qiblaAligned:      { color: "#22c55e", fontSize: 20, fontWeight: "800" },
-  qiblaNotAligned:   { color: "#ef4444", fontSize: 16 },
-  qiblaAngle:        { color: "#444", fontSize: 13, marginTop: 8, textAlign: "center" },
-
-  azkarGridRow:      { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 12, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
-  azkarGridBtn:      { width: "30%", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14, paddingVertical: 10, gap: 4 },
-  azkarGridText:     { fontSize: 11 },
-  azkarListWrap:     { flex: 1, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 80 },
-  azkarCard:         { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
-  azkarCardDone:     { opacity: 0.35 },
-  azkarCardLabel:    { fontSize: 11, marginBottom: 8, fontWeight: "700" },
-  azkarCardText:     { color: "#e2e8f0", fontSize: 16, lineHeight: 30 },
-  azkarCardFooter:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10 },
-  azkarRecordBtn:    { borderWidth: 1, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
-  azkarRecordBtnText:{ fontSize: 12 },
-  azkarCounterCircle:{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#111", alignItems: "center", justifyContent: "center" },
-  azkarCounterText:  { fontSize: 13, fontWeight: "700" },
-  azkarDoneText:     { color: "#22c55e", fontSize: 12, marginTop: 4 },
-
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 16, paddingVertical: 12 },
-  statBox:   { width: "47%", backgroundColor: "#0a0a0a", borderWidth: 1, borderRadius: 14, padding: 14, alignItems: "center" },
-  statIcon:  { fontSize: 22 },
-  statVal:   { fontSize: 24, fontWeight: "900" },
-  statUnit:  { fontSize: 10 },
-  statLabel: { fontSize: 11, color: "#555", marginTop: 2, textAlign: "center" },
-  barsRow:   { flexDirection: "row", alignItems: "flex-end", gap: 6, height: 100 },
-  barCol:    { flex: 1, alignItems: "center", gap: 3 },
-  barVal:    { fontSize: 9 },
-  barFill:   { width: "100%", borderRadius: 3, borderTopWidth: 2 },
-  barDay:    { fontSize: 9, color: "#444" },
-  achievementRow:  { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  achievementLabel:{ flex: 1, fontSize: 13 },
-
-  themeRow:        { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  themeEmojiBox:   { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  themeEmoji:      { fontSize: 20 },
-  themeName:       { color: "#e2e8f0", fontSize: 13, fontWeight: "700" },
-  themeDesc:       { color: "#555", fontSize: 11, marginTop: 1 },
-  themeActionBtn:  { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
-  themeActionText: { fontSize: 11 },
-
-  promoRow:     { flexDirection: "row", gap: 8 },
-  promoInput:   { flex: 1, backgroundColor: "#111", borderWidth: 1, color: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13 },
-  promoBtn:     { borderWidth: 1, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
-  promoBtnText: { fontSize: 13, fontWeight: "700" },
-  promoMsg:     { fontSize: 12, marginTop: 8 },
-  promoAdFree:  { color: "#22c55e", fontSize: 12, marginTop: 8 },
-
-  donateBtn:     { borderRadius: 14, paddingVertical: 14, alignItems: "center" },
-  donateBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
-
-  salahIntWrap:    { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#0d0d0d" },
-  salahIntLabel:   { color: "#888", fontSize: 12, marginBottom: 8 },
-  salahIntRow:     { flexDirection: "row", gap: 8 },
-  salahIntBtn:     { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 7, alignItems: "center" },
-  salahIntBtnText: { fontSize: 12 },
 
   bottomAd:     { backgroundColor: "#080808", borderTopWidth: 1, borderTopColor: "#111", paddingVertical: 7, alignItems: "center", position: "absolute", bottom: 82, left: 0, right: 0, zIndex: 90 },
   bottomAdText: { color: "#333", fontSize: 11 },
@@ -2369,11 +1494,4 @@ const styles = StyleSheet.create({
   navTabIconWrap:   { alignItems: "center", justifyContent: "center", minWidth: 36, height: 32 },
   navTabIcon:       { fontSize: 20 },
   navTabLabel:      { fontSize: 9, marginTop: 1, letterSpacing: 0.3 },
-aboutTitle:      { color: "#fff", fontSize: 20, fontWeight: "900", textAlign: "center", marginBottom: 12 },
-  aboutDivider:    { height: 1, marginVertical: 12 },
-  aboutSection:    { color: "#e2e8f0", fontSize: 14, fontWeight: "700", marginTop: 4, marginBottom: 8 },
-  aboutFeature:    { color: "#888", fontSize: 13, lineHeight: 24 },
-  aboutDisclaimer: { color: "#555", fontSize: 11, lineHeight: 18, textAlign: "center", marginTop: 8 },
-  floatCloseBtn:     { position: "absolute", top: -8, right: -8, backgroundColor: "#333", borderRadius: 10, width: 20, height: 20, alignItems: "center", justifyContent: "center" },
-  floatCloseBtnText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 });
