@@ -3,7 +3,7 @@ import TasbeehScreen from "./screens/TasbeehScreen";
 import AzkarScreen from "./screens/AzkarScreen";
 import StatsScreen from "./screens/StatsScreen";
 import QuranScreen from "./screens/QuranScreen";
-import HomeScreen from "./screens/HomeScreen";
+import HomeScreen from './screens/HomeScreen';
 import SettingsScreen from "./screens/SettingsScreen";
 import { AppIcon } from "./components/Icons";
 import { Magnetometer } from 'expo-sensors';
